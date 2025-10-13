@@ -149,11 +149,11 @@ public class ObjectRetrievalTools
         var escapedTableName = DaxSecurityUtils.EscapeDaxIdentifier(tableName);
         var dax = $"EVALUATE TOPN({topN}, {escapedTableName})";
         var result = await _tabularConnection.ExecAsync(dax);
-        
+
         // Wrap result in expected format with metadata
         var resultList = (result as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
         var columns = resultList.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
-        
+
         return new Dictionary<string, object?>
         {
             ["tableName"] = tableName,
@@ -199,7 +199,7 @@ public class ObjectRetrievalTools
                 _logger.LogError(ex, "Failed to execute INFO.FUNCTIONS() query for interfaceName: {InterfaceName}", interfaceName);
                 throw new Exception($"Failed to list functions for interface '{interfaceName}'. The interface may not exist or DAX query execution failed: {ex.Message}", ex);
             }
-            
+
             var results = (rawResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
 
             // Transform results to remove brackets from column names
@@ -255,7 +255,7 @@ public class ObjectRetrievalTools
 
             var escapedFunctionName = functionName.Replace("'", "''");
             var dmvQuery = $"SELECT * FROM $SYSTEM.MDSCHEMA_FUNCTIONS WHERE FUNCTION_NAME = '{escapedFunctionName}'";
-            
+
             object? rawResult;
             try
             {
@@ -266,22 +266,23 @@ public class ObjectRetrievalTools
                 _logger.LogWarning(ex, "DMV query failed for function: {FunctionName}", functionName);
                 throw new ArgumentException($"Failed to retrieve function details for '{functionName}'. The function may not exist or DMV access may be restricted.", nameof(functionName), ex);
             }
-            
+
             var resultList = (rawResult as IEnumerable<Dictionary<string, object?>>)?.ToList();
 
             if (resultList == null || !resultList.Any())
                 throw new ArgumentException($"Function '{functionName}' not found in the model", nameof(functionName));
 
             // Transform and wrap the result to match test expectations
-            var transformedResults = resultList.Select(dict => {
+            var transformedResults = resultList.Select(dict =>
+            {
                 var transformed = new Dictionary<string, object?>();
-                
+
                 // Add lowercase 'name' field from FUNCTION_NAME
                 if (dict.ContainsKey("FUNCTION_NAME"))
                 {
                     transformed["name"] = dict["FUNCTION_NAME"];
                 }
-                
+
                 // Transform PARAMETER_LIST string into parameters array
                 if (dict.ContainsKey("PARAMETER_LIST"))
                 {
@@ -296,18 +297,18 @@ public class ObjectRetrievalTools
                 {
                     transformed["parameters"] = new List<string>();
                 }
-                
+
                 // Add description
                 if (dict.ContainsKey("DESCRIPTION"))
                 {
                     transformed["description"] = dict["DESCRIPTION"];
                 }
-                
+
                 // Create syntax field
                 var funcName = dict.ContainsKey("FUNCTION_NAME") ? dict["FUNCTION_NAME"]?.ToString() : "FUNCTION";
                 var paramListForSyntax = dict.ContainsKey("PARAMETER_LIST") ? dict["PARAMETER_LIST"]?.ToString() : "";
                 transformed["syntax"] = $"{funcName}({paramListForSyntax})";
-                
+
                 // Copy any additional fields
                 foreach (var kvp in dict)
                 {
@@ -316,10 +317,10 @@ public class ObjectRetrievalTools
                         transformed[kvp.Key] = kvp.Value;
                     }
                 }
-                
+
                 return transformed;
             }).ToList();
-            
+
             return transformedResults.Count == 1 ? transformedResults[0] : transformedResults;
         }
         catch (ArgumentException)
@@ -357,30 +358,30 @@ public class ObjectRetrievalTools
             var cgQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_CALCULATION_GROUPS";
             var cgResult = await _tabularConnection.ExecAsync(cgQuery, QueryType.DMV);
             var calcGroups = (cgResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-            
+
             if (calcGroups.Any())
             {
                 var tablesQueryDmv = "SELECT * FROM $SYSTEM.TMSCHEMA_TABLES";
                 var tablesResult = await _tabularConnection.ExecAsync(tablesQueryDmv, QueryType.DMV);
                 var tablesDmv = (tablesResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-                
+
                 // Get IDs of tables that are calculation groups
                 var calcGroupTableIds = (from cg in calcGroups
-                                        select cg.GetValueOrDefault("TableID")?.ToString())
+                                         select cg.GetValueOrDefault("TableID")?.ToString())
                                         .Where(id => !string.IsNullOrEmpty(id))
                                         .ToHashSet();
-                
+
                 // Join INFO.VIEW.TABLES with DMV tables to get LineageTags
                 var calcGroupLineageTags = (from t in tablesDmv
-                                           where calcGroupTableIds.Contains(t.GetValueOrDefault("ID")?.ToString() ?? "")
-                                           select t.GetValueOrDefault("LineageTag")?.ToString())
+                                            where calcGroupTableIds.Contains(t.GetValueOrDefault("ID")?.ToString() ?? "")
+                                            select t.GetValueOrDefault("LineageTag")?.ToString())
                                            .Where(lt => !string.IsNullOrEmpty(lt))
                                            .ToHashSet();
-                
+
                 // Count calculation groups and subtract from total table count
                 calcGroupCount = calcGroupLineageTags.Count;
                 regularTableCount = tablesList.Count - calcGroupCount;
-                
+
                 _logger.LogDebug("Found {TotalTables} tables in INFO.VIEW, {CalcGroups} are calculation groups, {RegularTables} are regular tables",
                     tablesList.Count, calcGroupCount, regularTableCount);
             }
@@ -423,33 +424,33 @@ public class ObjectRetrievalTools
             var cgQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_CALCULATION_GROUPS";
             var cgResult = await _tabularConnection.ExecAsync(cgQuery, QueryType.DMV);
             var calcGroups = (cgResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-            
+
             if (calcGroups.Any())
             {
                 var tablesQueryDmv = "SELECT * FROM $SYSTEM.TMSCHEMA_TABLES";
                 var tablesResult = await _tabularConnection.ExecAsync(tablesQueryDmv, QueryType.DMV);
                 var tablesDmv = (tablesResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-                
+
                 // Get IDs of tables that are calculation groups
                 var calcGroupTableIds = (from cg in calcGroups
-                                        select cg.GetValueOrDefault("TableID")?.ToString())
+                                         select cg.GetValueOrDefault("TableID")?.ToString())
                                         .Where(id => !string.IsNullOrEmpty(id))
                                         .ToHashSet();
-                
+
                 // Get LineageTags of calculation group tables
                 var calcGroupLineageTags = (from t in tablesDmv
-                                           where calcGroupTableIds.Contains(t.GetValueOrDefault("ID")?.ToString() ?? "")
-                                           select t.GetValueOrDefault("LineageTag")?.ToString())
+                                            where calcGroupTableIds.Contains(t.GetValueOrDefault("ID")?.ToString() ?? "")
+                                            select t.GetValueOrDefault("LineageTag")?.ToString())
                                            .Where(lt => !string.IsNullOrEmpty(lt))
                                            .ToHashSet();
-                
+
                 // Filter out calculation groups from tables list
                 tables = tables.Where(t =>
                 {
                     var lineageTag = GetInfoViewValue(t, "LineageTag", "TABLES")?.ToString();
                     return !calcGroupLineageTags.Contains(lineageTag);
                 }).ToList();
-                
+
                 _logger.LogDebug("Filtered out {Count} calculation groups from table listing", calcGroupLineageTags.Count);
             }
         }
@@ -533,7 +534,7 @@ public class ObjectRetrievalTools
                 ["expressionPreview"] = expressionPreview,
                 ["description"] = GetInfoViewValue(m, "Description", "MEASURES")
             };
-            
+
             // Add basicDependencies if requested
             if (includeBasicDependencies)
             {
@@ -552,7 +553,7 @@ public class ObjectRetrievalTools
                 }
                 result["basicDependencies"] = refs.Distinct().Take(10).ToList(); // Limit to 10 for performance
             }
-            
+
             return result;
         }).ToList();
     }
@@ -597,17 +598,17 @@ public class ObjectRetrievalTools
             // DMV does not support JOINs or column selection, so we must query separately and join in C#
             var cgQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_CALCULATION_GROUPS";
             var tablesQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_TABLES";
-            
+
             _logger.LogDebug("Querying calculation groups and tables for C# join");
-            
+
             var cgResult = await _tabularConnection.ExecAsync(cgQuery, QueryType.DMV);
             var calcGroups = (cgResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-            
+
             var tablesResult = await _tabularConnection.ExecAsync(tablesQuery, QueryType.DMV);
             var tables = (tablesResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-            
+
             _logger.LogDebug("Found {CGCount} calculation groups and {TableCount} tables", calcGroups.Count, tables.Count);
-            
+
             // Perform in-memory join: match calculation groups with their corresponding tables
             var joined = from cg in calcGroups
                          join t in tables on cg.GetValueOrDefault("TableID")?.ToString() equals t.GetValueOrDefault("ID")?.ToString()
@@ -620,9 +621,9 @@ public class ObjectRetrievalTools
                              ["description"] = cg.GetValueOrDefault("Description"),  // Description from calc group
                              ["precedence"] = cg.GetValueOrDefault("Precedence")
                          };
-            
+
             var result = joined.ToList();
-            
+
             // Apply filters after join
             if (isHidden.HasValue)
                 result = result.Where(cg =>
@@ -653,30 +654,30 @@ public class ObjectRetrievalTools
             var ciQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_CALCULATION_ITEMS";
             var cgQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_CALCULATION_GROUPS";
             var tablesQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_TABLES";
-            
+
             _logger.LogDebug("Querying calculation items, groups, and tables for C# join");
-            
+
             var ciResult = await _tabularConnection.ExecAsync(ciQuery, QueryType.DMV);
             var calcItems = (ciResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-            
+
             var cgResult = await _tabularConnection.ExecAsync(cgQuery, QueryType.DMV);
             var calcGroups = (cgResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-            
+
             var tablesResult = await _tabularConnection.ExecAsync(tablesQuery, QueryType.DMV);
             var tables = (tablesResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-            
+
             // Create lookup for calc group ID to table name
             var cgIdToName = (from cg in calcGroups
                               join t in tables on cg.GetValueOrDefault("TableID")?.ToString() equals t.GetValueOrDefault("ID")?.ToString()
                               select new { CGID = cg.GetValueOrDefault("ID")?.ToString(), Name = t.GetValueOrDefault("Name")?.ToString() })
                              .ToDictionary(x => x.CGID ?? "", x => x.Name ?? "");
-            
+
             // Join calculation items with their group names
             var joined = calcItems.Select(ci =>
             {
                 var cgId = ci.GetValueOrDefault("CalculationGroupID")?.ToString() ?? "";
                 var groupName = cgIdToName.TryGetValue(cgId, out var name) ? name : null;
-                
+
                 var expression = ci.GetValueOrDefault("Expression")?.ToString() ?? "";
                 var expressionPreview = expression.Length > 100 ? expression.Substring(0, 100) : expression;
 
@@ -691,13 +692,13 @@ public class ObjectRetrievalTools
                     ["description"] = ci.GetValueOrDefault("Description")
                 };
             }).ToList();
-            
+
             // Apply filters
             if (!string.IsNullOrEmpty(tableName))
                 joined = joined.Where(ci =>
                     ci.TryGetValue("calculationGroup", out var cgName) &&
                     cgName?.ToString() == tableName).ToList();
-            
+
             _logger.LogDebug("Returning {Count} calculation items after filtering", joined.Count);
             return joined;
         }
@@ -762,21 +763,21 @@ public class ObjectRetrievalTools
         {
             var cgQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_CALCULATION_GROUPS";
             var tablesQuery = $"SELECT * FROM $SYSTEM.TMSCHEMA_TABLES WHERE LineageTag = '{lineageTag.Replace("'", "''")}'";
-            
+
             var tablesResult = await _tabularConnection.ExecAsync(tablesQuery, QueryType.DMV);
             var tables = (tablesResult as IEnumerable<Dictionary<string, object?>>)?.ToList();
-            
+
             if (tables != null && tables.Any())
             {
                 var table = tables.First();
                 var tableId = table.GetValueOrDefault("ID")?.ToString();
-                
+
                 // Check if this table is a calculation group
                 var cgResult = await _tabularConnection.ExecAsync(cgQuery, QueryType.DMV);
                 var calcGroups = (cgResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-                
+
                 var cg = calcGroups.FirstOrDefault(c => c.GetValueOrDefault("TableID")?.ToString() == tableId);
-                
+
                 if (cg != null)
                 {
                     var cgDetails = new Dictionary<string, object?>
@@ -788,7 +789,7 @@ public class ObjectRetrievalTools
                         ["description"] = cg.GetValueOrDefault("Description"),
                         ["precedence"] = cg.GetValueOrDefault("Precedence")
                     };
-                    
+
                     // Add calculation items if includeMetadata is true
                     if (includeMetadata)
                     {
@@ -797,7 +798,7 @@ public class ObjectRetrievalTools
                             // Use the same approach as ListCalculationItemsDetailed - query all items and filter by table name
                             var groupName = table.GetValueOrDefault("Name")?.ToString() ?? "";
                             var calcItemsList = await ListCalculationItemsDetailed(groupName, null);
-                            
+
                             // Map items to match expected format
                             cgDetails["calculationItems"] = calcItemsList.Select(ci => new Dictionary<string, object?>
                             {
@@ -815,7 +816,7 @@ public class ObjectRetrievalTools
                             cgDetails["calculationItems"] = new List<Dictionary<string, object?>>();
                         }
                     }
-                    
+
                     return cgDetails;
                 }
             }
@@ -883,7 +884,7 @@ public class ObjectRetrievalTools
                     ["description"] = GetInfoViewValue(table, "Description", "TABLES"),
                     ["dataCategory"] = GetInfoViewValue(table, "DataCategory", "TABLES")
                 };
-                
+
                 // Add metadata if requested
                 if (includeMetadata)
                 {
@@ -894,7 +895,7 @@ public class ObjectRetrievalTools
                         ["hasDescription"] = !string.IsNullOrWhiteSpace(tableResult["description"]?.ToString())
                     };
                 }
-                
+
                 return tableResult;
             }
         }
@@ -932,27 +933,27 @@ public class ObjectRetrievalTools
                 // Need to join with TABLES to get LineageTag
                 var cgQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_CALCULATION_GROUPS";
                 var tablesQuery = "SELECT * FROM $SYSTEM.TMSCHEMA_TABLES";
-                
+
                 var cgResult = await _tabularConnection.ExecAsync(cgQuery, QueryType.DMV);
                 var calcGroups = (cgResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-                
+
                 var tablesResult = await _tabularConnection.ExecAsync(tablesQuery, QueryType.DMV);
                 var tables = (tablesResult as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-                
+
                 // Find the calculation group by name and join with table to get LineageTag
                 var joined = from cg in calcGroups
-                            join t in tables on cg.GetValueOrDefault("TableID")?.ToString() equals t.GetValueOrDefault("ID")?.ToString()
-                            where t.GetValueOrDefault("Name")?.ToString() == name
-                            select new Dictionary<string, object?>
-                            {
-                                ["lineageTag"] = t.GetValueOrDefault("LineageTag"),
-                                ["name"] = t.GetValueOrDefault("Name"),
-                                ["type"] = "calculation_group",
-                                ["isHidden"] = t.GetValueOrDefault("IsHidden"),
-                                ["description"] = cg.GetValueOrDefault("Description"),
-                                ["precedence"] = cg.GetValueOrDefault("Precedence")
-                            };
-                
+                             join t in tables on cg.GetValueOrDefault("TableID")?.ToString() equals t.GetValueOrDefault("ID")?.ToString()
+                             where t.GetValueOrDefault("Name")?.ToString() == name
+                             select new Dictionary<string, object?>
+                             {
+                                 ["lineageTag"] = t.GetValueOrDefault("LineageTag"),
+                                 ["name"] = t.GetValueOrDefault("Name"),
+                                 ["type"] = "calculation_group",
+                                 ["isHidden"] = t.GetValueOrDefault("IsHidden"),
+                                 ["description"] = cg.GetValueOrDefault("Description"),
+                                 ["precedence"] = cg.GetValueOrDefault("Precedence")
+                             };
+
                 var result = joined.FirstOrDefault();
                 if (result != null)
                 {
@@ -963,7 +964,7 @@ public class ObjectRetrievalTools
                         {
                             // Use ListCalculationItemsDetailed which we know works
                             var calcItemsList = await ListCalculationItemsDetailed(name, null);
-                            
+
                             // Map items to match expected format
                             result["calculationItems"] = calcItemsList.Select(ci => new Dictionary<string, object?>
                             {
@@ -981,7 +982,7 @@ public class ObjectRetrievalTools
                             result["calculationItems"] = new List<Dictionary<string, object?>>();
                         }
                     }
-                    
+
                     return result;
                 }
             }

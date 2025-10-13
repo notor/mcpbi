@@ -56,7 +56,7 @@ public class QueryExecutionTools
             await _tabularConnection.ValidateConnectionAsync();
 
             _logger.LogDebug("Starting RunQuery execution for query: {Query}", originalDax?.Substring(0, Math.Min(100, originalDax?.Length ?? 0)));
-            
+
             var startTime = DateTime.UtcNow;
 
             // Input validation
@@ -133,11 +133,11 @@ public class QueryExecutionTools
                 var result = await _tabularConnection.ExecAsync(finalQuery, queryType);
                 var executionTime = DateTime.UtcNow - startTime;
                 _logger.LogDebug("Query execution completed successfully in {ExecutionTime}ms", executionTime.TotalMilliseconds);
-                
+
                 // Wrap result in expected format
                 var resultList = (result as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
                 var columns = resultList.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
-                
+
                 return new Dictionary<string, object?>
                 {
                     ["rows"] = resultList,

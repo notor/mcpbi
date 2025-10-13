@@ -87,7 +87,7 @@ public class QueryAnalysisTools
                     // Wrap simple expression in ROW()
                     testQuery = $"EVALUATE ROW(\"ValidationTest\", {daxExpression})";
                 }
-                
+
                 await _tabularConnection.ExecAsync(testQuery, QueryType.DAX);
                 executionValid = true;
             }
@@ -148,29 +148,29 @@ public class QueryAnalysisTools
     {
         // Validate connection before proceeding
         await _tabularConnection.ValidateConnectionAsync();
- 
+
         var diagnostics = new DmvDiagnostics();
- 
+
         try
         {
             if (string.IsNullOrWhiteSpace(daxQuery))
                 throw new ArgumentException("DAX query cannot be empty", nameof(daxQuery));
- 
+
             if (iterations < 1)
                 throw new ArgumentException("Iterations must be >= 1", nameof(iterations));
- 
+
             object? firstQueryResult = null;
             string executionError = "";
             bool allRunsSuccessful = true;
- 
+
             var runTimesMs = new List<double>();
             // Capture baseline session metrics before execution with diagnostics
             var (sessionId, sessionIdMethod) = await GetCurrentSessionIdWithDiagnosticsAsync(diagnostics);
             diagnostics.SessionId = sessionId;
             diagnostics.SessionIdMethod = sessionIdMethod;
- 
+
             var baselineMetrics = await GetSessionMetricsWithDiagnosticsAsync(sessionId, diagnostics, "baseline");
- 
+
             // Execute the query N times for statistics
             for (int i = 0; i < iterations; i++)
             {
@@ -180,7 +180,7 @@ public class QueryAnalysisTools
                     var queryResult = await _tabularConnection.ExecAsync(daxQuery, QueryType.DAX);
                     var runElapsed = (DateTime.UtcNow - runStart).TotalMilliseconds;
                     runTimesMs.Add(runElapsed);
- 
+
                     // Keep the first result for row counting
                     if (i == 0)
                         firstQueryResult = queryResult;
@@ -195,11 +195,11 @@ public class QueryAnalysisTools
                     break;
                 }
             }
- 
+
             // Capture post-execution metrics with diagnostics
             var postMetrics = await GetSessionMetricsWithDiagnosticsAsync(sessionId, diagnostics, "post-execution");
             var commandMetrics = await GetRecentCommandMetricsWithDiagnosticsAsync(sessionId, diagnostics);
- 
+
             // Calculate aggregated timing statistics
             var timings = runTimesMs.ToArray();
             double avg = timings.Length > 0 ? timings.Average() : 0.0;
@@ -215,41 +215,41 @@ public class QueryAnalysisTools
                 double variance = sorted.Select(x => Math.Pow(x - avg, 2)).Sum() / sorted.Length;
                 stddev = Math.Sqrt(variance);
             }
- 
+
             var averageExecutionTime = TimeSpan.FromMilliseconds(avg);
- 
+
             // Calculate engine metrics using average execution time for context
             var engineMetrics = CalculateEngineMetrics(baselineMetrics, postMetrics, commandMetrics, averageExecutionTime, diagnostics);
- 
+
             // Analyze query structure and complexity using the original query
             var complexityAnalysis = AnalyzeQueryStructure(daxQuery);
             var performanceMetrics = CalculatePerformanceMetrics(daxQuery, averageExecutionTime, allRunsSuccessful);
- 
+
             // Generate performance insights using average execution time
             var insights = GeneratePerformanceInsights(averageExecutionTime, engineMetrics, complexityAnalysis, performanceMetrics, allRunsSuccessful);
- 
+
             var optimizationSuggestions = new List<string>();
             if (includeOptimizations)
             {
                 optimizationSuggestions = GenerateEnhancedOptimizationSuggestions(
                     daxQuery, complexityAnalysis, performanceMetrics, engineMetrics);
             }
- 
+
             int resultRowCount = 0;
             if (allRunsSuccessful && firstQueryResult is IEnumerable<Dictionary<string, object?>> rows)
             {
                 resultRowCount = rows.Count();
             }
- 
+
             // Build condensed structured output with timing statistics
             return new
             {
                 // Average execution time (ms) for compatibility
                 executionTime = (int)Math.Round(avg),
- 
+
                 // Query plan availability note
                 queryPlan = complexityAnalysis != null ? "Available in analysis section" : "Not available",
- 
+
                 execution = new
                 {
                     successful = allRunsSuccessful,
@@ -267,7 +267,7 @@ public class QueryAnalysisTools
                     resultRowCount = resultRowCount,
                     error = string.IsNullOrEmpty(executionError) ? null : executionError
                 },
- 
+
                 performance = new
                 {
                     rating = performanceMetrics != null ?
@@ -275,15 +275,15 @@ public class QueryAnalysisTools
                     metrics = engineMetrics ?? performanceMetrics,
                     metricSource = engineMetrics != null ? "DMV" : "Heuristic"
                 },
- 
+
                 analysis = complexityAnalysis,
- 
+
                 Recommendations = includeOptimizations && optimizationSuggestions.Count > 0
                     ? optimizationSuggestions
                     : null,
- 
+
                 Insights = insights,
- 
+
                 Diagnostics = diagnostics.Warnings.Count > 0 || sessionId == "unknown"
                     ? new
                     {
