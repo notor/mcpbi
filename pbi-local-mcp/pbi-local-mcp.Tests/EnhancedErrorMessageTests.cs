@@ -4,8 +4,14 @@ using pbi_local_mcp.Configuration;
 
 namespace pbi_local_mcp.Tests;
 
+/// <summary>
+/// Tests for enhanced error message generation.
+/// </summary>
 public class EnhancedErrorMessageTests
 {
+    /// <summary>
+    /// Tests that enhanced error messages are created correctly for DAX queries.
+    /// </summary>
     [Fact]
     public void TestCreateEnhancedErrorMessage_DAXQuery()
     {
@@ -38,6 +44,9 @@ public class EnhancedErrorMessageTests
         }
     }
 
+    /// <summary>
+    /// Tests that enhanced error messages are created correctly for DMV queries.
+    /// </summary>
     [Fact]
     public void TestCreateEnhancedErrorMessage_DMVQuery()
     {
@@ -70,6 +79,9 @@ public class EnhancedErrorMessageTests
         }
     }
 
+    /// <summary>
+    /// Tests that enhanced error messages truncate long queries correctly.
+    /// </summary>
     [Fact]
     public void TestCreateEnhancedErrorMessage_LongQuery_ShouldTruncate()
     {

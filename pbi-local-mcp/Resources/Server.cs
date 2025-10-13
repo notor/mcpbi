@@ -15,6 +15,7 @@ using ModelContextProtocol.Server;
 
 using pbi_local_mcp.Configuration;
 using pbi_local_mcp.Core;
+using pbi_local_mcp.Tools;
 
 namespace pbi_local_mcp.Resources;
 
@@ -79,7 +80,9 @@ public class ServerConfigurator
                 return new TabularConnection(config, logger);
             })
             .AddSingleton<PowerBiResourceProvider>()
-            .AddSingleton<DaxTools>();
+            .AddSingleton<QueryExecutionTools>()
+            .AddSingleton<QueryAnalysisTools>()
+            .AddSingleton<ObjectRetrievalTools>();
 
         _logger.LogInformation("Core services registered.");
 
@@ -92,16 +95,16 @@ public class ServerConfigurator
             {
                 var resourceProvider = context.Services?.GetRequiredService<PowerBiResourceProvider>();
                 var logger = context.Services?.GetService<ILogger<ServerConfigurator>>();
-                
+
                 if (resourceProvider == null)
                 {
                     logger?.LogWarning("PowerBiResourceProvider not available");
                     return new ModelContextProtocol.Protocol.ListResourcesResult { Resources = [] };
                 }
-                
+
                 logger?.LogDebug("Handling ListResources request");
                 var resources = await resourceProvider.ListResourcesAsync(cancellationToken);
-                
+
                 return new ModelContextProtocol.Protocol.ListResourcesResult
                 {
                     Resources = resources.Select(r => new ModelContextProtocol.Protocol.Resource
@@ -117,17 +120,17 @@ public class ServerConfigurator
             {
                 var resourceProvider = context.Services?.GetRequiredService<PowerBiResourceProvider>();
                 var logger = context.Services?.GetService<ILogger<ServerConfigurator>>();
-                
+
                 if (resourceProvider == null)
                 {
                     throw new Exception("PowerBiResourceProvider not available");
                 }
-                
+
                 var uri = context.Params?.Uri ?? throw new Exception("Resource URI is required");
                 logger?.LogDebug("Handling ReadResource request for URI: {Uri}", uri);
-                
+
                 var content = await resourceProvider.ReadResourceAsync(uri, cancellationToken);
-                
+
                 return new ModelContextProtocol.Protocol.ReadResourceResult
                 {
                     Contents =
@@ -145,19 +148,19 @@ public class ServerConfigurator
             {
                 // Call the next filter in the pipeline
                 var result = await next(context, cancellationToken);
-                
+
                 var logger = context.Services?.GetService<ILogger<ServerConfigurator>>();
                 var resourceProvider = context.Services?.GetService<PowerBiResourceProvider>();
-                
+
                 if (resourceProvider == null || logger == null)
                 {
                     logger?.LogWarning("ResourceProvider or Logger not available in context");
                     return result;
                 }
-                
+
                 // Get interface names with fallback
                 var interfaceNames = await GetInterfaceNamesWithFallbackAsync(resourceProvider, logger, cancellationToken);
-                
+
                 // Inject enum values into ListFunctions tool schema
                 if (result.Tools != null)
                 {
@@ -170,7 +173,7 @@ public class ServerConfigurator
                         }
                     }
                 }
-                
+
                 return result;
             });
 
@@ -449,7 +452,7 @@ public class ServerConfigurator
             // Serialize back to JsonElement via JsonDocument
             using var doc = JsonDocument.Parse(schemaNode.ToJsonString());
             tool.InputSchema = doc.RootElement.Clone();
-            
+
             logger.LogDebug("Successfully injected {Count} enum values into {ToolName}.{ParameterName}",
                 enumValues.Count(), tool.Name, parameterName);
         }

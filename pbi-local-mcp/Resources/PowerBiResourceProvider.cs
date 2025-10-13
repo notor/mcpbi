@@ -118,42 +118,42 @@ public sealed class PowerBiResourceProvider
 
         _logger.LogDebug(LogEvents.CacheMiss, "Instance list cache miss");
         var instances = await _instanceDiscovery.DiscoverInstances().ConfigureAwait(false);
- 
+
         _cache.Set(cacheKey, instances, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(5)
         });
- 
+
         return instances;
     }
- 
+
     private const string InterfaceNamesCacheKey = "PowerBiResourceProvider.InterfaceNames";
- 
+
     private async Task<IEnumerable<string>> GetFunctionInterfaceNamesAsync(CancellationToken ct)
     {
         if (_cache.TryGetValue(InterfaceNamesCacheKey, out IEnumerable<string>? cached) && cached != null)
         {
             return cached;
         }
- 
+
         _logger.LogDebug(LogEvents.CacheMiss, "Function interface names cache miss");
- 
+
         // Use DAX INFO function to retrieve interface name values
         var daxQuery = "EVALUATE DISTINCT(SELECTCOLUMNS(INFO.FUNCTIONS(), \"INTERFACE_NAME\", [INTERFACE_NAME]))";
         var raw = await _tabular.ExecAsync(daxQuery, QueryType.DAX, ct).ConfigureAwait(false);
- 
+
         var list = raw
             .Where(r => r.TryGetValue("INTERFACE_NAME", out var v) && v != null)
             .Select(r => r["INTERFACE_NAME"]!.ToString()!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(s => s)
             .ToList();
- 
+
         _cache.Set(InterfaceNamesCacheKey, list, new MemoryCacheEntryOptions
         {
             AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(60)
         });
- 
+
         return list;
     }
 

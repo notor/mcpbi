@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions; // Added for NullLogger
 
 using pbi_local_mcp.Configuration;
 using pbi_local_mcp.Core; // Added for ITabularConnection
+using pbi_local_mcp.Tools;
 
 namespace pbi_local_mcp.Tests;
 
@@ -16,7 +17,7 @@ public class Tests
 {
     private static string? _connStr;
     private static Dictionary<string, JsonElement> _toolConfig = new();
-    private static readonly DaxTools _daxTools; // Added DaxTools instance
+    private static readonly ObjectRetrievalTools _daxTools; // Object retrieval tools
 
     /// <summary>
     /// Initializes test environment by loading configuration and setting up tool instances
@@ -88,9 +89,9 @@ public class Tests
 
         Console.WriteLine($"[Setup] Final configuration - PBI_PORT: {port}, PBI_DB_ID: {dbId ?? "NOT_SET"}");
 
-        // Initialize DaxTools instance with auto-discovery if dbId is not provided
+        // Initialize ObjectRetrievalTools instance with auto-discovery if dbId is not provided
         ITabularConnection tabularConnection;
-        ILogger<DaxTools> logger = NullLogger<DaxTools>.Instance;
+        ILogger<ObjectRetrievalTools> logger = NullLogger<ObjectRetrievalTools>.Instance;
 
         if (string.IsNullOrEmpty(dbId))
         {
@@ -123,7 +124,7 @@ public class Tests
                   $"Initial Catalog={dbId ?? "auto-discovered"};Integrated Security=SSPI;";
         Console.WriteLine($"[Setup] Connection string for tests: {_connStr}");
 
-        _daxTools = new DaxTools(tabularConnection, logger); // Instantiate DaxTools
+        _daxTools = new ObjectRetrievalTools(tabularConnection, logger); // Instantiate ObjectRetrievalTools
 
         // Load tooltest.config.json
         string dir2 = AppContext.BaseDirectory;
@@ -173,13 +174,15 @@ public class Tests
             t.GetString() ?? "" : "";
         Console.WriteLine($"\n[ListMeasuresTool_DoesNotThrow] Listing measures for table: {tableName}");
 
-        var response = await _daxTools.ListMeasures(tableName); // Changed to instance call
+        var response = await _daxTools.ListObjects(type: "measure", tableName: string.IsNullOrEmpty(tableName) ? null : tableName);
         LogToolResponse(response);
 
-        var result = ExtractDataFromResponse(response);
-        Assert.IsAssignableFrom<IEnumerable<Dictionary<string, object?>>>(result);
-        Console.WriteLine(
-            $"[ListMeasuresTool_DoesNotThrow] Found {((IEnumerable<Dictionary<string, object?>>)result).Count()} measures.");
+        // ListObjects returns a structured response with "objects" property
+        Assert.NotNull(response);
+        var responseType = response.GetType();
+        var objectsProperty = responseType.GetProperty("objects");
+        Assert.NotNull(objectsProperty);
+        Console.WriteLine($"[ListMeasuresTool_DoesNotThrow] ListObjects response received");
     }
 
     /// <summary>
@@ -214,14 +217,20 @@ public class Tests
         Console.WriteLine(
             $"\n[GetTableDetailsTool_DoesNotThrow] Getting details for table: {tableName}");
 
-        var response = await _daxTools.GetTableDetails(tableName); // Changed to instance call
+        var response = await _daxTools.GetObjectDetails(tableName, type: "table");
         LogToolResponse(response);
 
-        var result = ExtractDataFromResponse(response);
-        Assert.IsAssignableFrom<IEnumerable<Dictionary<string, object?>>>(result);
-        var rows = (IEnumerable<Dictionary<string, object?>>)result;
-        Console.WriteLine(
-            $"[GetTableDetailsTool_DoesNotThrow] Retrieved details with {rows.Count()} rows.");
+        // GetObjectDetails returns a dictionary with object properties
+        Assert.NotNull(response);
+        Assert.IsType<Dictionary<string, object?>>(response);
+
+        // Verify that key fields are not null
+        var dict = (Dictionary<string, object?>)response;
+        Assert.NotNull(dict["name"]);
+        Assert.NotNull(dict["lineageTag"]);
+        Assert.Equal("table", dict["type"]);
+
+        Console.WriteLine($"[GetTableDetailsTool_DoesNotThrow] Retrieved table details");
     }
 
     /// <summary>
@@ -235,14 +244,20 @@ public class Tests
         Console.WriteLine(
             $"\n[GetMeasureDetailsTool_DoesNotThrow] Getting details for measure: {measureName}");
 
-        var response = await _daxTools.GetMeasureDetails(measureName); // Changed to instance call
+        var response = await _daxTools.GetObjectDetails(measureName, type: "measure", tableName: "financials");
         LogToolResponse(response);
 
-        var result = ExtractDataFromResponse(response);
-        Assert.IsAssignableFrom<IEnumerable<Dictionary<string, object?>>>(result);
-        var rows = (IEnumerable<Dictionary<string, object?>>)result;
-        Console.WriteLine(
-            $"[GetMeasureDetailsTool_DoesNotThrow] Retrieved details with {rows.Count()} rows.");
+        // GetObjectDetails returns a dictionary with object properties
+        Assert.NotNull(response);
+        Assert.IsType<Dictionary<string, object?>>(response);
+
+        // Verify that key fields are not null
+        var dict = (Dictionary<string, object?>)response;
+        Assert.NotNull(dict["name"]);
+        Assert.NotNull(dict["lineageTag"]);
+        Assert.Equal("measure", dict["type"]);
+
+        Console.WriteLine($"[GetMeasureDetailsTool_DoesNotThrow] Retrieved measure details");
     }
 
     /// <summary>
@@ -253,13 +268,15 @@ public class Tests
     {
         Console.WriteLine("\n[ListTablesTool_DoesNotThrow] Listing all tables");
 
-        var response = await _daxTools.ListTables(); // Changed to instance call
+        var response = await _daxTools.ListObjects(type: "table");
         LogToolResponse(response);
 
-        var result = ExtractDataFromResponse(response);
-        Assert.IsAssignableFrom<IEnumerable<Dictionary<string, object?>>>(result);
-        var rows = (IEnumerable<Dictionary<string, object?>>)result;
-        Console.WriteLine($"[ListTablesTool_DoesNotThrow] Found {rows.Count()} tables.");
+        // ListObjects returns a structured response with "objects" property
+        Assert.NotNull(response);
+        var responseType = response.GetType();
+        var objectsProperty = responseType.GetProperty("objects");
+        Assert.NotNull(objectsProperty);
+        Console.WriteLine($"[ListTablesTool_DoesNotThrow] ListObjects response received");
     }
 
     /// <summary>
@@ -273,13 +290,15 @@ public class Tests
         Console.WriteLine(
             $"\n[GetTableColumnsTool_DoesNotThrow] Getting columns for table: {tableName}");
 
-        var response = await _daxTools.GetTableColumns(tableName); // Changed to instance call
+        var response = await _daxTools.ListObjects(type: "column", tableName: tableName);
         LogToolResponse(response);
 
-        var result = ExtractDataFromResponse(response);
-        Assert.IsAssignableFrom<IEnumerable<Dictionary<string, object?>>>(result);
-        var rows = (IEnumerable<Dictionary<string, object?>>)result;
-        Console.WriteLine($"[GetTableColumnsTool_DoesNotThrow] Found {rows.Count()} columns.");
+        // ListObjects returns a structured response with "objects" property
+        Assert.NotNull(response);
+        var responseType = response.GetType();
+        var objectsProperty = responseType.GetProperty("objects");
+        Assert.NotNull(objectsProperty);
+        Console.WriteLine($"[GetTableColumnsTool_DoesNotThrow] ListObjects response received");
     }
 
     /// <summary>
@@ -293,14 +312,15 @@ public class Tests
         Console.WriteLine(
             $"\n[GetTableRelationshipsTool_DoesNotThrow] Getting relationships for table: {tableName}");
 
-        var response = await _daxTools.GetTableRelationships(tableName); // Changed to instance call
+        var response = await _daxTools.ListObjects(type: "relationship", tableName: tableName);
         LogToolResponse(response);
 
-        var result = ExtractDataFromResponse(response);
-        Assert.IsAssignableFrom<IEnumerable<Dictionary<string, object?>>>(result);
-        var rows = (IEnumerable<Dictionary<string, object?>>)result;
-        Console.WriteLine(
-            $"[GetTableRelationshipsTool_DoesNotThrow] Found {rows.Count()} relationships.");
+        // ListObjects returns a structured response with "objects" property
+        Assert.NotNull(response);
+        var responseType = response.GetType();
+        var objectsProperty = responseType.GetProperty("objects");
+        Assert.NotNull(objectsProperty);
+        Console.WriteLine($"[GetTableRelationshipsTool_DoesNotThrow] ListObjects response received");
     }
 
     internal static void LogToolResponse(object response)
@@ -337,11 +357,24 @@ public class Tests
     internal static IEnumerable<Dictionary<string, object?>> ExtractDataFromResponse(object response)
     {
         Assert.NotNull(response);
-        if (response is IEnumerable<Dictionary<string, object?>> rows)
+        
+        // Handle wrapped response (with "rows" key)
+        if (response is Dictionary<string, object?> dict && dict.ContainsKey("rows"))
         {
-            return rows;
+            var rowsObj = dict["rows"];
+            if (rowsObj is IEnumerable<Dictionary<string, object?>> rows)
+            {
+                return rows;
+            }
         }
-        throw new InvalidOperationException("Response is not a collection of dictionaries.");
+        
+        // Handle direct collection response
+        if (response is IEnumerable<Dictionary<string, object?>> directRows)
+        {
+            return directRows;
+        }
+        
+        throw new InvalidOperationException("Response is not a collection of dictionaries or a wrapped response with 'rows' key.");
     }
 }
 
@@ -351,7 +384,7 @@ public class Tests
 public class DaxToolsRunQueryTests
 {
     private static readonly Dictionary<string, JsonElement> _toolConfig;
-    private static readonly DaxTools _daxTools; // Added DaxTools instance
+    private static readonly QueryExecutionTools _daxTools; // Query execution tools
 
     static DaxToolsRunQueryTests()
     {
@@ -419,9 +452,9 @@ public class DaxToolsRunQueryTests
 
         Console.WriteLine($"[DaxToolsRunQueryTests Setup] Final configuration - PBI_PORT: {port}, PBI_DB_ID: {dbId ?? "NOT_SET"}");
 
-        // Initialize DaxTools instance with auto-discovery if dbId is not provided
+        // Initialize TabularConnection and QueryExecutionTools
         ITabularConnection tabularConnection;
-        ILogger<DaxTools> logger = NullLogger<DaxTools>.Instance;
+        ILogger<QueryExecutionTools> logger = NullLogger<QueryExecutionTools>.Instance;
 
         if (string.IsNullOrEmpty(dbId))
         {
@@ -450,7 +483,7 @@ public class DaxToolsRunQueryTests
             tabularConnection = new TabularConnection(powerBiConfig);
         }
 
-        _daxTools = new DaxTools(tabularConnection, logger);
+        _daxTools = new QueryExecutionTools(tabularConnection, logger);
 
         // Load tooltest.config.json
         string dir2 = AppContext.BaseDirectory;
@@ -623,6 +656,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_DefinitionOrderingTest_DoesNotThrow] Successfully executed query with mixed definition types");
     }
 
+    /// <summary>
+    /// Tests that RunQuery executes a basic expression without throwing.
+    /// </summary>
     [Fact]
     public async Task RunQuery_BasicExpression_DoesNotThrow()
     {
@@ -642,6 +678,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine($"[RunQuery_BasicExpression_DoesNotThrow] Retrieved {rows.Count()} rows, with value {rows.First()["[Value]"]}.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response for multiple DEFINE blocks.
+    /// </summary>
     [Fact]
     public async Task RunQuery_MultipleDefineBlocks_ReturnsStructuredErrorResponse()
     {
@@ -667,6 +706,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_MultipleDefineBlocks_ReturnsStructuredErrorResponse] Correctly returned structured error response.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response when DEFINE appears after EVALUATE.
+    /// </summary>
     [Fact]
     public async Task RunQuery_DefineAfterEvaluate_ReturnsStructuredErrorResponse()
     {
@@ -691,6 +733,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_DefineAfterEvaluate_ReturnsStructuredErrorResponse] Correctly returned structured error response.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response for an empty DEFINE block.
+    /// </summary>
     [Fact]
     public async Task RunQuery_EmptyDefineBlock_ReturnsStructuredErrorResponse()
     {
@@ -715,6 +760,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_EmptyDefineBlock_ReturnsStructuredErrorResponse] Correctly returned structured error response.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response for a DEFINE block with no valid definition.
+    /// </summary>
     [Fact]
     public async Task RunQuery_DefineBlockWithNoValidDefinition_ReturnsStructuredErrorResponse()
     {
@@ -740,6 +788,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_DefineBlockWithNoValidDefinition_ReturnsStructuredErrorResponse] Correctly returned structured error response.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response for queries with unbalanced single quotes.
+    /// </summary>
     [Fact]
     public async Task RunQuery_UnbalancedSingleQuotes_ReturnsStructuredErrorResponse()
     {
@@ -762,6 +813,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_UnbalancedSingleQuotes_ReturnsStructuredErrorResponse] Correctly returned structured error response.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response for queries with unbalanced double quotes.
+    /// </summary>
     [Fact]
     public async Task RunQuery_UnbalancedDoubleQuotes_ReturnsStructuredErrorResponse()
     {
@@ -784,6 +838,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_UnbalancedDoubleQuotes_ReturnsStructuredErrorResponse] Correctly returned structured error response.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response for empty queries.
+    /// </summary>
     [Fact]
     public async Task RunQuery_QueryIsEmpty_ReturnsStructuredErrorResponse()
     {
@@ -806,6 +863,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_QueryIsEmpty_ReturnsStructuredErrorResponse] Correctly returned structured error response.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response for whitespace-only queries.
+    /// </summary>
     [Fact]
     public async Task RunQuery_QueryIsWhitespace_ReturnsStructuredErrorResponse()
     {
@@ -828,6 +888,9 @@ public class DaxToolsRunQueryTests
         Console.WriteLine("[RunQuery_QueryIsWhitespace_ReturnsStructuredErrorResponse] Correctly returned structured error response.");
     }
 
+    /// <summary>
+    /// Tests that RunQuery returns a structured error response for semantically invalid DAX queries.
+    /// </summary>
     [Fact]
     public async Task RunQuery_InvalidDaxSemanticError_ReturnsStructuredErrorResponse()
     {

@@ -6,9 +6,12 @@ using pbi_local_mcp.Configuration;
 
 namespace pbi_local_mcp.Tests;
 
+/// <summary>
+/// Tests for RunQueryAsync functionality.
+/// </summary>
 public class RunQueryAsyncTests
 {
-    private static DaxTools CreateTools()
+    private static QueryExecutionTools CreateTools()
     {
         // Always read the repository root .env and prefer environment variables.
         string? port = Environment.GetEnvironmentVariable("PBI_PORT");
@@ -47,14 +50,17 @@ public class RunQueryAsyncTests
             {
                 try
                 {
-                    var discovery = new InstanceDiscovery(NullLogger<InstanceDiscovery>.Instance);
-                    var instances = discovery.DiscoverInstances().GetAwaiter().GetResult();
-                    foreach (var inst in instances)
+                    if (OperatingSystem.IsWindows())
                     {
-                        if (inst.Port == discoveredPort && inst.Databases != null && inst.Databases.Count > 0)
+                        var discovery = new InstanceDiscovery(NullLogger<InstanceDiscovery>.Instance);
+                        var instances = discovery.DiscoverInstances().GetAwaiter().GetResult();
+                        foreach (var inst in instances)
                         {
-                            dbId = inst.Databases[0].Id;
-                            break;
+                            if (inst.Port == discoveredPort && inst.Databases != null && inst.Databases.Count > 0)
+                            {
+                                dbId = inst.Databases[0].Id;
+                                break;
+                            }
                         }
                     }
                 }
@@ -67,14 +73,35 @@ public class RunQueryAsyncTests
             if (!string.IsNullOrWhiteSpace(dbId)) Environment.SetEnvironmentVariable("PBI_DB_ID", dbId);
         }
 
-        // No fallback defaults: require values from environment or .env (PowerBiConfig will validate)
-        var config = new PowerBiConfig { Port = port ?? string.Empty, DbId = dbId ?? string.Empty };
+        // Use TabularConnection auto-discovery if dbId is not available
         var connectionLogger = NullLogger<TabularConnection>.Instance;
-        var connection = new TabularConnection(config, connectionLogger);
-        var daxToolsLogger = NullLogger<DaxTools>.Instance;
-        return new DaxTools(connection, daxToolsLogger);
+        TabularConnection connection;
+
+        if (string.IsNullOrWhiteSpace(dbId) && !string.IsNullOrWhiteSpace(port))
+        {
+            // Auto-discover database
+            connection = TabularConnection.CreateWithDiscoveryAsync(port, connectionLogger).GetAwaiter().GetResult();
+        }
+        else if (!string.IsNullOrWhiteSpace(port) && !string.IsNullOrWhiteSpace(dbId))
+        {
+            // Use provided port and dbId
+            var config = new PowerBiConfig { Port = port, DbId = dbId };
+            connection = new TabularConnection(config, connectionLogger);
+        }
+        else
+        {
+            // Fallback: use defaults if neither port nor dbId available
+            var config = new PowerBiConfig { Port = port ?? "62678", DbId = dbId ?? "TestDB" };
+            connection = new TabularConnection(config, connectionLogger);
+        }
+
+        var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
+        return new QueryExecutionTools(connection, toolsLogger);
     }
 
+    /// <summary>
+    /// Tests that RunQueryAsync returns a success envelope in verbose mode.
+    /// </summary>
     [Fact]
     public async Task RunQueryAsync_Verbose_SuccessEnvelope()
     {
@@ -95,6 +122,9 @@ public class RunQueryAsyncTests
         Assert.Equal(JsonValueKind.Array, resultProp.ValueKind);
     }
 
+    /// <summary>
+    /// Tests that RunQueryAsync returns a validation error envelope in verbose mode.
+    /// </summary>
     [Fact]
     public async Task RunQueryAsync_Verbose_ValidationErrorEnvelope()
     {
@@ -109,6 +139,9 @@ public class RunQueryAsyncTests
         Assert.NotNull(root.GetProperty("errorMessage").GetString());
     }
 
+    /// <summary>
+    /// Tests that RunQueryAsync returns raw results in non-verbose mode on success.
+    /// </summary>
     [Fact]
     public async Task RunQueryAsync_NonVerbose_SuccessRaw()
     {
@@ -121,6 +154,9 @@ public class RunQueryAsyncTests
         Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
     }
 
+    /// <summary>
+    /// Tests that RunQueryAsync throws exception in non-verbose mode on execution error.
+    /// </summary>
     [Fact]
     public async Task RunQueryAsync_NonVerbose_ExecutionError_Throws()
     {
@@ -131,6 +167,9 @@ public class RunQueryAsyncTests
             await tools.RunQueryAsync("EVALUATE BADFUNCTION()", verbose: false));
     }
 
+    /// <summary>
+    /// Tests that RunQueryAsync returns an error envelope for invalid query type in verbose mode.
+    /// </summary>
     [Fact]
     public async Task RunQueryAsync_InvalidQueryType_Verbose_ErrorEnvelope()
     {
@@ -145,6 +184,9 @@ public class RunQueryAsyncTests
         Assert.Contains("Invalid queryType", root.GetProperty("errorMessage").GetString());
     }
 
+    /// <summary>
+    /// Tests that RunQueryAsync throws exception for invalid query type in non-verbose mode.
+    /// </summary>
     [Fact]
     public async Task RunQueryAsync_InvalidQueryType_NonVerbose_Throws()
     {

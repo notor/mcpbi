@@ -8,6 +8,10 @@ namespace pbi_local_mcp.Tests;
 /// </summary>
 public class SecurityTests
 {
+    /// <summary>
+    /// Tests that IsValidIdentifier returns true for valid identifiers.
+    /// </summary>
+    /// <param name="identifier">The identifier to validate.</param>
     [Theory]
     [InlineData("ValidTableName")]
     [InlineData("Table_With_Underscores")]
@@ -30,6 +34,10 @@ public class SecurityTests
         Assert.True(result);
     }
 
+    /// <summary>
+    /// Tests that IsValidIdentifier returns false for invalid identifiers.
+    /// </summary>
+    /// <param name="identifier">The identifier to validate.</param>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -44,6 +52,9 @@ public class SecurityTests
         Assert.False(result);
     }
 
+    /// <summary>
+    /// Tests that IsValidIdentifier returns false for identifiers that are too long.
+    /// </summary>
     [Fact]
     public void DaxSecurityUtils_IsValidIdentifier_TooLongIdentifier_ReturnsFalse()
     {
@@ -57,6 +68,11 @@ public class SecurityTests
         Assert.False(result);
     }
 
+    /// <summary>
+    /// Tests that EscapeDaxIdentifier escapes valid identifiers correctly.
+    /// </summary>
+    /// <param name="input">The input identifier.</param>
+    /// <param name="expected">The expected escaped identifier.</param>
     [Theory]
     [InlineData("TableName", "'TableName'")]
     [InlineData("Table's Name", "'Table''s Name'")]
@@ -72,6 +88,10 @@ public class SecurityTests
         Assert.Equal(expected, result);
     }
 
+    /// <summary>
+    /// Tests that EscapeDaxIdentifier throws ArgumentException for invalid identifiers.
+    /// </summary>
+    /// <param name="identifier">The identifier to escape.</param>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -83,6 +103,10 @@ public class SecurityTests
         Assert.Throws<ArgumentException>(() => DaxSecurityUtils.EscapeDaxIdentifier(identifier));
     }
 
+    /// <summary>
+    /// Tests that ValidateFilterExpression does not throw for valid filter expressions.
+    /// </summary>
+    /// <param name="filterExpr">The filter expression to validate.</param>
     [Theory]
     [InlineData("[Name] = 'Value'")]
     [InlineData("[ID] > 100")]
@@ -93,6 +117,10 @@ public class SecurityTests
         FilterExpressionValidator.ValidateFilterExpression(filterExpr);
     }
 
+    /// <summary>
+    /// Tests that ValidateFilterExpression throws ArgumentException for malicious expressions.
+    /// </summary>
+    /// <param name="filterExpr">The filter expression to validate.</param>
     [Theory]
     [InlineData("[Name] = 'Value'; DROP TABLE Users; --")]
     [InlineData("[Name] = 'Value'--comment")]
@@ -113,6 +141,10 @@ public class SecurityTests
         Assert.Throws<ArgumentException>(() => FilterExpressionValidator.ValidateFilterExpression(filterExpr));
     }
 
+    /// <summary>
+    /// Tests that ValidateFilterExpression throws ArgumentException for expressions with invalid characters.
+    /// </summary>
+    /// <param name="filterExpr">The filter expression to validate.</param>
     [Theory]
     [InlineData("[Name] = 'Value' <script>")]
     [InlineData("[Name] = 'Value' $ illegal")]
@@ -122,6 +154,10 @@ public class SecurityTests
         Assert.Throws<ArgumentException>(() => FilterExpressionValidator.ValidateFilterExpression(filterExpr));
     }
 
+    /// <summary>
+    /// Tests that ValidateFilterExpression does not throw for null or empty expressions.
+    /// </summary>
+    /// <param name="filterExpr">The filter expression to validate.</param>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -138,6 +174,10 @@ public class SecurityTests
 /// </summary>
 public class PowerBiConfigSecurityTests
 {
+    /// <summary>
+    /// Tests that PowerBiConfig.Port does not throw for valid port values.
+    /// </summary>
+    /// <param name="port">The port value to set.</param>
     [Theory]
     [InlineData("8080")]
     [InlineData("1433")]
@@ -153,6 +193,10 @@ public class PowerBiConfigSecurityTests
         Assert.Equal(port, config.Port);
     }
 
+    /// <summary>
+    /// Tests that PowerBiConfig.Port throws ArgumentException for invalid port values.
+    /// </summary>
+    /// <param name="port">The port value to set.</param>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -173,6 +217,10 @@ public class PowerBiConfigSecurityTests
         Assert.Throws<ArgumentException>(() => config.Port = port);
     }
 
+    /// <summary>
+    /// Tests that PowerBiConfig.DbId does not throw for valid database IDs.
+    /// </summary>
+    /// <param name="dbId">The database ID to set.</param>
     [Theory]
     [InlineData("ValidDatabaseId")]
     [InlineData("Database_123")]
@@ -187,6 +235,10 @@ public class PowerBiConfigSecurityTests
         Assert.Equal(dbId, config.DbId);
     }
 
+    /// <summary>
+    /// Tests that PowerBiConfig.DbId throws ArgumentException for null or empty database IDs.
+    /// </summary>
+    /// <param name="dbId">The database ID to set.</param>
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -200,6 +252,9 @@ public class PowerBiConfigSecurityTests
         Assert.Throws<ArgumentException>(() => config.DbId = dbId);
     }
 
+    /// <summary>
+    /// Tests that PowerBiConfig.DbId throws ArgumentException for database IDs that are too long.
+    /// </summary>
     [Fact]
     public void PowerBiConfig_DbId_TooLongDbId_ThrowsArgumentException()
     {
