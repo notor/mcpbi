@@ -43,10 +43,10 @@ public class QueryExecutionTools
     /// <param name="dax">The DAX query to execute. Can be a complete query with DEFINE block, an EVALUATE statement, or a simple expression.</param>
     /// <param name="topN">Maximum number of rows to return for table expressions (default: 10). Ignored for complete queries.</param>
     /// <returns>Query execution result or detailed error information</returns>
-    [McpServerTool, Description("Execute a DAX query. Supports complete DAX queries with DEFINE blocks, EVALUATE statements, or simple expressions.")]
+    [McpServerTool, Description("Execute DAX query or expression.")]
     public async Task<object> RunQuery(
-        [Description("The DAX query to execute. Can be a complete query with DEFINE block, an EVALUATE statement, or a simple expression.")] string dax,
-        [Description("Maximum number of rows to return for table expressions (default: 10). Ignored for complete queries.")] int topN = 10)
+        [Description("DAX query or expression")] string dax,
+        [Description("Max rows for table expressions")] int topN = 10)
     {
         string originalDax = dax;
 
@@ -621,22 +621,15 @@ public class QueryExecutionTools
             ErrorDetails = new
             {
                 ExceptionType = exception.GetType().Name,
-                Message = exception.Message,
-                InnerException = exception.InnerException?.Message,
-                StackTrace = exception.StackTrace?.Split('\n').Take(5).ToArray() // First 5 lines only
+                Message = exception.Message
             },
             QueryInfo = new
             {
                 QueryType = queryType.ToString(),
-                OriginalLength = originalQuery.Length,
-                FinalLength = finalQuery.Length,
                 WasModified = originalQuery != finalQuery,
-                OriginalQuery = originalQuery.Length > 1000 ? originalQuery.Substring(0, 1000) + "..." : originalQuery,
-                FinalQuery = originalQuery != finalQuery ? (finalQuery.Length > 1000 ? finalQuery.Substring(0, 1000) + "..." : finalQuery) : null
+                Query = originalQuery.Length > 200 ? originalQuery.Substring(0, 200) + "..." : originalQuery
             },
-            Suggestions = suggestions,
-            Timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss UTC"),
-            DetailedErrorMessage = QueryErrorClassifier.CreateDetailedErrorMessage(exception, originalQuery, finalQuery, queryType)
+            Suggestions = suggestions.Take(3).ToList()
         };
     }
 

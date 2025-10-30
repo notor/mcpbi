@@ -28,13 +28,13 @@ public class ObjectRetrievalTools
     // CONSOLIDATED TOOLS
     // ========================================================================
 
-    [McpServerTool, Description("List objects in the semantic model with flexible filtering. Supports tables, columns, measures, hierarchies, calculation groups, relationships, KPIs, parameters, perspectives, and translations. Returns essential metadata including lineageTag for stable object identification.")]
+    [McpServerTool, Description("List model objects with filtering by type, table, visibility, and description.")]
     public async Task<object> ListObjects(
-        [Description("Object type: table, column, measure, hierarchy, calculation_group, calculation_item, relationship, kpi, parameter, perspective, translation. Null returns all objects.")] string? type = null,
-        [Description("Filter by parent table name (for columns, measures, hierarchies, calculation items)")] string? tableName = null,
-        [Description("Filter by hidden status (true=hidden only, false=visible only, null=all)")] bool? isHidden = null,
-        [Description("Filter for objects with descriptions (true=with description, false=without, null=all)")] bool? hasDescription = null,
-        [Description("Include basic dependency reference count in results")] bool includeBasicDependencies = false)
+        [Description("Object type or null for all")] string? type = null,
+        [Description("Filter by parent table name")] string? tableName = null,
+        [Description("Filter by hidden status")] bool? isHidden = null,
+        [Description("Filter by description presence")] bool? hasDescription = null,
+        [Description("Include dependency count")] bool includeBasicDependencies = false)
     {
         try
         {
@@ -82,13 +82,13 @@ public class ObjectRetrievalTools
         }
     }
 
-    [McpServerTool, Description("Get detailed information for a specific object by lineageTag or name. Returns comprehensive metadata, dependencies (direct or full), and object-specific properties. Lineage tag provides stable identification across renames.")]
+    [McpServerTool, Description("Get detailed information about a semantic model object. Use lineageTag (GUID from list_objects) OR name with type. For columns/measures/calculation_items, tableName is required when using name.")]
     public async Task<object> GetObjectDetails(
-        [Description("Object identifier: lineageTag (GUID) or object name")] string identifier,
-        [Description("Object type (required for name lookup): table, column, measure, hierarchy, calculation_group, relationship, kpi, parameter")] string? type = null,
-        [Description("Parent table name (for columns, measures, hierarchies when using name)")] string? tableName = null,
-        [Description("Dependency analysis: none, direct, or full")] string includeDependencies = "none",
-        [Description("Include extended metadata properties")] bool includeMetadata = true)
+        [Description("LineageTag (GUID) OR object name. LineageTag is preferred and faster.")] string identifier,
+        [Description("Required for name lookup: 'table', 'measure', 'column', 'relationship', 'calculation_group', 'calculation_item'")] string? type = null,
+        [Description("Required for columns, measures, and calculation_items when using name (not lineageTag)")] string? tableName = null,
+        [Description("Dependency level: 'none' (default), 'direct' (immediate refs), 'full' (complete graph)")] string includeDependencies = "none",
+        [Description("Include extended metadata and calculation items list")] bool includeMetadata = true)
     {
         try
         {
@@ -101,7 +101,7 @@ public class ObjectRetrievalTools
             bool isLineageTag = Guid.TryParse(identifier, out _);
 
             if (!isLineageTag && string.IsNullOrWhiteSpace(type))
-                throw new ArgumentException("Type parameter is required when using name-based lookup", nameof(type));
+                throw new ArgumentException("Type parameter is required when using name-based lookup. Valid types: 'table', 'measure', 'column', 'relationship', 'calculation_group', 'calculation_item'", nameof(type));
 
             var normalizedType = type?.ToLowerInvariant().Trim();
             var depLevel = includeDependencies?.ToLowerInvariant().Trim() ?? "none";
@@ -114,7 +114,15 @@ public class ObjectRetrievalTools
                 : await GetObjectByName(identifier, normalizedType!, tableName, includeMetadata);
 
             if (objectDetails == null)
-                throw new ArgumentException($"Object not found: {identifier} (type: {type}, table: {tableName})");
+            {
+                var hint = normalizedType switch
+                {
+                    "calculation_item" => " Note: calculation_items may lack lineageTags; use name with tableName (the calculation group name).",
+                    "column" or "measure" => " Hint: These types require 'tableName' parameter.",
+                    _ => ""
+                };
+                throw new ArgumentException($"Object '{identifier}' not found (type: {type ?? "unknown"}, table: {tableName ?? "not specified"}).{hint}");
+            }
 
             if (depLevel != "none")
             {
@@ -124,10 +132,15 @@ public class ObjectRetrievalTools
 
             return objectDetails;
         }
+        catch (ArgumentException ex)
+        {
+            _logger.LogWarning("Validation error in GetObjectDetails: {Message}", ex.Message);
+            return new { error = ex.Message, parameter = ex.ParamName };
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in GetObjectDetails for identifier={Identifier}", identifier);
-            throw;
+            return new { error = $"Failed to retrieve object details: {ex.Message}" };
         }
     }
 
@@ -135,38 +148,10 @@ public class ObjectRetrievalTools
     // RETAINED TOOLS - Not redundant with consolidated tools
     // ========================================================================
 
-    [McpServerTool, Description("Preview data from a table (top N rows).")]
-    public async Task<object> PreviewTableData(
-        [Description("Name of the table to preview data for")] string tableName,
-        [Description("Maximum number of rows to return (default: 10)")] int topN = 10)
-    {
-        // Validate connection before proceeding
-        await _tabularConnection.ValidateConnectionAsync();
 
-        if (!DaxSecurityUtils.IsValidIdentifier(tableName))
-            throw new ArgumentException("Invalid table name format", nameof(tableName));
-
-        var escapedTableName = DaxSecurityUtils.EscapeDaxIdentifier(tableName);
-        var dax = $"EVALUATE TOPN({topN}, {escapedTableName})";
-        var result = await _tabularConnection.ExecAsync(dax);
-
-        // Wrap result in expected format with metadata
-        var resultList = (result as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-        var columns = resultList.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
-
-        return new Dictionary<string, object?>
-        {
-            ["tableName"] = tableName,
-            ["rows"] = resultList,
-            ["columns"] = columns,
-            ["rowCount"] = resultList.Count,
-            ["requestedTopN"] = topN
-        };
-    }
-
-    [McpServerTool, Description("List available DAX functions with optional filtering. Useful for discovering functions by category (INTERFACE_NAME) when developing DAX queries.")]
+    [McpServerTool, Description("List DAX functions by category.")]
     public async Task<object> ListFunctions(
-        [Description("Required: Function category (e.g., DATETIME, LOGICAL, FILTER). Use powerbi://functions/interface-names resource to discover available categories.")] string interfaceName)
+        [Description("Function category (e.g., DATETIME, LOGICAL)")] string interfaceName)
     {
         try
         {
@@ -238,9 +223,9 @@ public class ObjectRetrievalTools
         }
     }
 
-    [McpServerTool, Description("Get detailed information for a specific DAX function including parameters.")]
+    [McpServerTool, Description("Get DAX function details and parameters.")]
     public async Task<object> GetFunctionDetails(
-        [Description("Name of the function to get details for (case-insensitive)")] string functionName)
+        [Description("Function name")] string functionName)
     {
         try
         {

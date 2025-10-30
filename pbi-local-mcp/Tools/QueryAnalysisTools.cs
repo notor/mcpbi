@@ -42,10 +42,10 @@ public class QueryAnalysisTools
     /// <param name="daxExpression">DAX expression to validate</param>
     /// <param name="includeRecommendations">Include performance and best practice recommendations</param>
     /// <returns>Validation results including syntax errors, warnings, and recommendations</returns>
-    [McpServerTool, Description("Validate DAX syntax and identify potential issues with enhanced error analysis.")]
-    public async Task<object> ValidateDaxSyntax(
-        [Description("DAX expression to validate")] string daxExpression,
-        [Description("Include performance and best practice recommendations")] bool includeRecommendations = true)
+    [McpServerTool, Description("Validate DAX syntax and identify issues.")]
+    public async Task<object> ValidateQuery(
+        [Description("DAX expression")] string daxExpression,
+        [Description("Include recommendations")] bool includeRecommendations = true)
     {
         try
         {
@@ -140,11 +140,11 @@ public class QueryAnalysisTools
     /// <param name="includeOptimizations">Include complexity metrics and optimization suggestions</param>
     /// <param name="iterations">Number of iterations to run the query for aggregated statistics (default: 1)</param>
     /// <returns>Performance analysis results including execution time, DMV-based engine metrics, and optimization suggestions</returns>
-    [McpServerTool, Description("Analyze query performance characteristics and identify potential bottlenecks.")]
+    [McpServerTool, Description("Analyze query performance and identify bottlenecks.")]
     public async Task<object> AnalyzeQueryPerformance(
-        [Description("DAX query to analyze")] string daxQuery,
-        [Description("Include complexity metrics and optimization suggestions")] bool includeOptimizations = true,
-        [Description("Number of iterations to run the query for statistics (default: 1)")] int iterations = 1)
+        [Description("DAX query")] string daxQuery,
+        [Description("Include optimizations")] bool includeOptimizations = true,
+        [Description("Iterations for statistics")] int iterations = 1)
     {
         // Validate connection before proceeding
         await _tabularConnection.ValidateConnectionAsync();
