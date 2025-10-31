@@ -192,7 +192,7 @@ public class McpToolsIntegrationTests : IDisposable
     public async Task RunQuery_ShouldExecuteSimpleExpression()
     {
         // Arrange
-        var tools = new QueryExecutionTools(_connection, _queryLogger);
+        var tools = new QueryExecutionTools(_connection, _queryLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act
         var result = await tools.RunQuery("1+1");
@@ -213,7 +213,7 @@ public class McpToolsIntegrationTests : IDisposable
             "99999",
             "invalid"
         );
-        var tools = new QueryExecutionTools(badConnection, _queryLogger);
+        var tools = new QueryExecutionTools(badConnection, _queryLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act & Assert
         await Assert.ThrowsAsync<PowerBiConnectionException>(

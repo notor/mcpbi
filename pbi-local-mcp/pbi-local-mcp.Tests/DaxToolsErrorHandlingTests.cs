@@ -16,7 +16,7 @@ public class DaxToolsErrorHandlingTests
         // Arrange
         var connection = TestConnectionHelper.CreateConnection();
         var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
-        var daxTools = new QueryExecutionTools(connection, toolsLogger);
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Execute query with invalid DAX that will cause execution error
         var result = await daxTools.RunQuery("EVALUATE BADFUNCTION()");
@@ -48,7 +48,7 @@ public class DaxToolsErrorHandlingTests
         // Arrange
         var connection = TestConnectionHelper.CreateConnection();
         var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
-        var daxTools = new QueryExecutionTools(connection, toolsLogger);
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Test with an empty query that will trigger validation error
         var result = await daxTools.RunQuery("");
@@ -80,7 +80,7 @@ public class DaxToolsErrorHandlingTests
         // Arrange
         var connection = TestConnectionHelper.CreateConnection();
         var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
-        var daxTools = new QueryExecutionTools(connection, toolsLogger);
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Test with unbalanced parentheses
         var result = await daxTools.RunQuery("SUM(Sales[Amount]");
@@ -113,7 +113,7 @@ public class DaxToolsErrorHandlingTests
         // Arrange
         var connection = TestConnectionHelper.CreateConnection();
         var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
-        var daxTools = new QueryExecutionTools(connection, toolsLogger);
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Test with whitespace-only query
         var result = await daxTools.RunQuery("   \t\n  ");
@@ -139,7 +139,7 @@ public class DaxToolsErrorHandlingTests
         // Arrange
         var connection = TestConnectionHelper.CreateConnection();
         var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
-        var daxTools = new QueryExecutionTools(connection, toolsLogger);
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Test with invalid DEFINE query structure (missing EVALUATE)
         var result = await daxTools.RunQuery("DEFINE MEASURE Sales[Total] = SUM(Sales[Amount])");

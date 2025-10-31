@@ -380,20 +380,32 @@ public class ObjectRetrievalTools
         summary.Add(new Dictionary<string, object?> { ["objectType"] = "measure", ["count"] = measures?.Count() ?? 0 });
         summary.Add(new Dictionary<string, object?> { ["objectType"] = "column", ["count"] = columns?.Count() ?? 0 });
         summary.Add(new Dictionary<string, object?> { ["objectType"] = "relationship", ["count"] = relationships?.Count() ?? 0 });
-        summary.Add(new Dictionary<string, object?> { ["objectType"] = "calculation_group", ["count"] = calcGroupCount });
-
-        // Add calculation items count
+        
+        // Add calculation_group with integrated calculation_item count
+        var calcItemCount = 0;
         try
         {
-            var calcItems = await _tabularConnection.ExecAsync("SELECT COUNT(*) AS Count FROM $SYSTEM.TMSCHEMA_CALCULATION_ITEMS", QueryType.DMV) as IEnumerable<Dictionary<string, object?>>;
-            var ciCount = calcItems?.FirstOrDefault()?.GetValueOrDefault("Count");
-            summary.Add(new Dictionary<string, object?> { ["objectType"] = "calculation_item", ["count"] = ciCount != null ? Convert.ToInt32(ciCount) : 0 });
+            if (calcGroupCount > 0)
+            {
+                var calcItems = await _tabularConnection.ExecAsync("SELECT COUNT(*) AS Count FROM $SYSTEM.TMSCHEMA_CALCULATION_ITEMS", QueryType.DMV) as IEnumerable<Dictionary<string, object?>>;
+                var ciCount = calcItems?.FirstOrDefault()?.GetValueOrDefault("Count");
+                calcItemCount = ciCount != null ? Convert.ToInt32(ciCount) : 0;
+                _logger.LogDebug("Found {CalcItemCount} calculation items across {CalcGroupCount} calculation groups", calcItemCount, calcGroupCount);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Calculation items not available in this model");
-            summary.Add(new Dictionary<string, object?> { ["objectType"] = "calculation_item", ["count"] = 0 });
         }
+        
+        summary.Add(new Dictionary<string, object?> {
+            ["objectType"] = "calculation_group",
+            ["count"] = calcGroupCount,
+            ["calculationItemCount"] = calcItemCount
+        });
+        
+        // Also add calculation_item as separate entry for backward compatibility and filtering
+        summary.Add(new Dictionary<string, object?> { ["objectType"] = "calculation_item", ["count"] = calcItemCount });
 
         return summary;
     }

@@ -483,7 +483,7 @@ public class DaxToolsRunQueryTests
             tabularConnection = new TabularConnection(powerBiConfig);
         }
 
-        _daxTools = new QueryExecutionTools(tabularConnection, logger);
+        _daxTools = new QueryExecutionTools(tabularConnection, logger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Load tooltest.config.json
         string dir2 = AppContext.BaseDirectory;

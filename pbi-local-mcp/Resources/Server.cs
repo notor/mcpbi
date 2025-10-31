@@ -79,6 +79,18 @@ public class ServerConfigurator
                 var logger = serviceProvider.GetRequiredService<ILogger<TabularConnection>>();
                 return new TabularConnection(config, logger);
             })
+            .AddSingleton<TruncationService>(serviceProvider =>
+            {
+                var maxRowsStr = Environment.GetEnvironmentVariable("PBI_MAX_ROWS") ?? "500";
+                var maxRows = int.TryParse(maxRowsStr, out var parsed) ? parsed : 500;
+                return new TruncationService(maxRows);
+            })
+            .AddSingleton<DataObfuscationService>(serviceProvider =>
+            {
+                var strategy = Environment.GetEnvironmentVariable("PBI_OBFUSCATION_STRATEGY") ?? "none";
+                var encryptionKey = Environment.GetEnvironmentVariable("PBI_ENCRYPTION_KEY");
+                return new DataObfuscationService(strategy, encryptionKey);
+            })
             .AddSingleton<PowerBiResourceProvider>()
             .AddSingleton<QueryExecutionTools>()
             .AddSingleton<QueryAnalysisTools>()
@@ -272,13 +284,33 @@ public class ServerConfigurator
             name: "--port",
             description: "PowerBI port number to connect to");
 
+        var maxRowsOption = new Option<int>(
+            name: "--max-rows",
+            description: "Maximum number of rows to return in query results",
+            getDefaultValue: () => 500);
+
+        var obfuscationStrategyOption = new Option<string>(
+            name: "--obfuscation-strategy",
+            description: "Data obfuscation strategy: none, all, dimensions, or facts",
+            getDefaultValue: () => "none");
+
+        var encryptionKeyOption = new Option<string?>(
+            name: "--encryption-key",
+            description: "Encryption key for data obfuscation (required if obfuscation-strategy != none, minimum 16 characters)");
+
         var rootCommand = new RootCommand("PowerBI Tabular MCP Server")
         {
-            portOption
+            portOption,
+            maxRowsOption,
+            obfuscationStrategyOption,
+            encryptionKeyOption
         };
 
         var parseResult = rootCommand.Parse(args);
         var portValue = parseResult.GetValueForOption(portOption);
+        var maxRowsValue = parseResult.GetValueForOption(maxRowsOption);
+        var obfuscationStrategyValue = parseResult.GetValueForOption(obfuscationStrategyOption);
+        var encryptionKeyValue = parseResult.GetValueForOption(encryptionKeyOption);
 
         if (!string.IsNullOrWhiteSpace(portValue))
         {
@@ -302,6 +334,40 @@ public class ServerConfigurator
             Environment.SetEnvironmentVariable("PBI_DB_ID", databaseId);
 
             _logger.LogInformation("Auto-discovered database {DatabaseId} on port {Port}", databaseId, port);
+        }
+
+        // Set max rows environment variable
+        Environment.SetEnvironmentVariable("PBI_MAX_ROWS", maxRowsValue.ToString());
+        _logger.LogInformation("Max rows set to: {MaxRows}", maxRowsValue);
+
+        // Set obfuscation strategy environment variable
+        if (!string.IsNullOrWhiteSpace(obfuscationStrategyValue))
+        {
+            var validStrategies = new[] { "none", "all", "dimensions", "facts" };
+            if (!validStrategies.Contains(obfuscationStrategyValue.ToLowerInvariant()))
+            {
+                throw new ArgumentException($"Invalid obfuscation strategy: {obfuscationStrategyValue}. Valid values: none, all, dimensions, facts");
+            }
+
+            Environment.SetEnvironmentVariable("PBI_OBFUSCATION_STRATEGY", obfuscationStrategyValue.ToLowerInvariant());
+            _logger.LogInformation("Obfuscation strategy set to: {Strategy}", obfuscationStrategyValue);
+
+            // Validate encryption key if obfuscation is enabled
+            if (obfuscationStrategyValue.ToLowerInvariant() != "none")
+            {
+                if (string.IsNullOrWhiteSpace(encryptionKeyValue))
+                {
+                    throw new ArgumentException("Encryption key is required when obfuscation strategy is not 'none'. Use --encryption-key parameter.");
+                }
+
+                if (encryptionKeyValue.Length < 16)
+                {
+                    throw new ArgumentException("Encryption key must be at least 16 characters long.");
+                }
+
+                Environment.SetEnvironmentVariable("PBI_ENCRYPTION_KEY", encryptionKeyValue);
+                _logger.LogInformation("Encryption key configured (length: {KeyLength} characters)", encryptionKeyValue.Length);
+            }
         }
     }
 

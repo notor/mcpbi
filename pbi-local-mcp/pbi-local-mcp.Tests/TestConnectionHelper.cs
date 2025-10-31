@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using pbi_local_mcp.Configuration;
+using pbi_local_mcp.Core;
 
 namespace pbi_local_mcp.Tests;
 
@@ -10,6 +11,27 @@ namespace pbi_local_mcp.Tests;
 /// </summary>
 public static class TestConnectionHelper
 {
+    /// <summary>
+    /// Creates a TruncationService for testing
+    /// </summary>
+    /// <param name="maxRows">Maximum rows (default: 500)</param>
+    /// <returns>Configured TruncationService instance</returns>
+    public static TruncationService CreateTruncationService(int maxRows = 500)
+    {
+        return new TruncationService(maxRows);
+    }
+
+    /// <summary>
+    /// Creates a DataObfuscationService for testing
+    /// </summary>
+    /// <param name="strategy">Obfuscation strategy (default: "none")</param>
+    /// <param name="encryptionKey">Encryption key (required if strategy != "none")</param>
+    /// <returns>Configured DataObfuscationService instance</returns>
+    public static DataObfuscationService CreateObfuscationService(string strategy = "none", string? encryptionKey = null)
+    {
+        return new DataObfuscationService(strategy, encryptionKey);
+    }
+
     /// <summary>
     /// Creates a TabularConnection with auto-discovery if dbId is not provided.
     /// Reads from environment variables and .env file.

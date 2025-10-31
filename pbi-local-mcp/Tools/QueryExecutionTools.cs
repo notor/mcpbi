@@ -20,6 +20,8 @@ public class QueryExecutionTools
 {
     private readonly ITabularConnection _tabularConnection;
     private readonly ILogger<QueryExecutionTools> _logger;
+    private readonly TruncationService _truncationService;
+    private readonly DataObfuscationService _obfuscationService;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -31,22 +33,32 @@ public class QueryExecutionTools
     /// </summary>
     /// <param name="tabularConnection">The tabular connection service.</param>
     /// <param name="logger">The logger service.</param>
-    public QueryExecutionTools(ITabularConnection tabularConnection, ILogger<QueryExecutionTools> logger)
+    /// <param name="truncationService">The truncation service for row limiting.</param>
+    /// <param name="obfuscationService">The obfuscation service for data masking.</param>
+    public QueryExecutionTools(
+        ITabularConnection tabularConnection,
+        ILogger<QueryExecutionTools> logger,
+        TruncationService truncationService,
+        DataObfuscationService obfuscationService)
     {
         _tabularConnection = tabularConnection ?? throw new ArgumentNullException(nameof(tabularConnection));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _truncationService = truncationService ?? throw new ArgumentNullException(nameof(truncationService));
+        _obfuscationService = obfuscationService ?? throw new ArgumentNullException(nameof(obfuscationService));
     }
 
     /// <summary>
     /// Execute a DAX query. Supports complete DAX queries with DEFINE blocks or simple expressions.
+    /// Results are automatically truncated based on server configuration (default 500 rows).
+    /// Obfuscation is applied if configured via command-line arguments.
     /// </summary>
     /// <param name="dax">The DAX query to execute. Can be a complete query with DEFINE block, an EVALUATE statement, or a simple expression.</param>
-    /// <param name="topN">Maximum number of rows to return for table expressions (default: 10). Ignored for complete queries.</param>
-    /// <returns>Query execution result or detailed error information</returns>
-    [McpServerTool, Description("Execute DAX query or expression.")]
+    /// <param name="topN">Maximum number of rows to return for table expressions (default: 10). Capped by server max-rows setting.</param>
+    /// <returns>Query execution result with metadata (totalRows, displayedRows, truncated, hasMore) or detailed error information. May include obfuscation metadata if data masking is enabled.</returns>
+    [McpServerTool, Description("Execute DAX query or expression. Results include pagination metadata (totalRows, displayedRows, truncated, hasMore). Obfuscation applied if configured.")]
     public async Task<object> RunQuery(
         [Description("DAX query or expression")] string dax,
-        [Description("Max rows for table expressions")] int topN = 10)
+        [Description("Max rows for table expressions (capped by server max-rows setting, default 500)")] int topN = 10)
     {
         string originalDax = dax;
 
@@ -138,13 +150,30 @@ public class QueryExecutionTools
                 var resultList = (result as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
                 var columns = resultList.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
 
-                return new Dictionary<string, object?>
+                // Apply obfuscation if enabled
+                if (_obfuscationService.Strategy != ObfuscationStrategy.None && resultList.Count > 0)
                 {
-                    ["rows"] = resultList,
-                    ["columns"] = columns,
-                    ["rowCount"] = resultList.Count,
-                    ["executionTime"] = Math.Round(executionTime.TotalMilliseconds, 2)
-                };
+                    var obfResult = _obfuscationService.ObfuscateData(resultList, columns);
+                    resultList = obfResult.Rows;
+                    _logger.LogDebug("Applied {Strategy} obfuscation to {FieldCount} fields",
+                        obfResult.Strategy, obfResult.ObfuscatedFields.Count);
+                }
+
+                // Apply truncation with metadata
+                var response = _truncationService.ApplyTruncationWithMetadata(
+                    resultList,
+                    columns,
+                    topN,
+                    executionTime.TotalMilliseconds);
+
+                // Add obfuscation metadata if applied
+                if (_obfuscationService.Strategy != ObfuscationStrategy.None)
+                {
+                    response["obfuscated"] = true;
+                    response["obfuscationStrategy"] = _obfuscationService.Strategy.ToString();
+                }
+
+                return response;
             }
             catch (Exception execEx)
             {

@@ -104,7 +104,7 @@ public class McpServerIntegrationTests : IDisposable
 
         // Verify tools can be instantiated
         var objectTools = new Tools.ObjectRetrievalTools(_connection, new TestLogger<Tools.ObjectRetrievalTools>(_output));
-        var queryTools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output));
+        var queryTools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output), TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
         var analysisTools = new QueryAnalysisTools(_connection, new TestLogger<QueryAnalysisTools>(_output));
 
         Assert.NotNull(objectTools);
@@ -450,7 +450,7 @@ public class McpServerIntegrationTests : IDisposable
     {
         _output.WriteLine($"\n=== TEST 7.1: RunQuery - {scenarioName} ===");
 
-        var tools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output));
+        var tools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output), TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         var result = await tools.RunQuery(
             dax: GetParam<string>(parameters, "dax")!,

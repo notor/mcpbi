@@ -96,7 +96,7 @@ public class RunQueryAsyncTests
         }
 
         var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
-        return new QueryExecutionTools(connection, toolsLogger);
+        return new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
     }
 
     /// <summary>
