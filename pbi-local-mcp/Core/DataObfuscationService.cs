@@ -214,7 +214,8 @@ public class DataObfuscationService : IDisposable
     }
 
     /// <summary>
-    /// Encrypts a value using AES encryption with deterministic output
+    /// Encrypts a value using AES-256 encryption with deterministic output
+    /// Uses a deterministic IV derived from the plaintext for consistent encryption
     /// </summary>
     private string EncryptValue(object? value)
     {
@@ -223,12 +224,64 @@ public class DataObfuscationService : IDisposable
 
         var plainText = value.ToString() ?? string.Empty;
 
-        // Use HMAC for deterministic encryption (same input -> same output)
-        using var hmac = new HMACSHA256(_keyBytes);
-        var hashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(plainText));
+        using var aes = Aes.Create();
+        aes.Key = _keyBytes;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
 
-        // Return base64 encoded hash with prefix to indicate it's encrypted
-        return $"ENC:{Convert.ToBase64String(hashBytes)}";
+        // Derive a deterministic IV from the plaintext
+        // This ensures same plaintext always produces same ciphertext
+        using var hmac = new HMACSHA256(_keyBytes);
+        var ivBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(plainText));
+        aes.IV = ivBytes.Take(16).ToArray(); // AES requires 16-byte IV
+
+        using var encryptor = aes.CreateEncryptor();
+        var plainBytes = Encoding.UTF8.GetBytes(plainText);
+        var encryptedBytes = encryptor.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
+
+        // Combine IV and encrypted data for decryption
+        var result = new byte[aes.IV.Length + encryptedBytes.Length];
+        Buffer.BlockCopy(aes.IV, 0, result, 0, aes.IV.Length);
+        Buffer.BlockCopy(encryptedBytes, 0, result, aes.IV.Length, encryptedBytes.Length);
+
+        // Return base64 encoded result with prefix to indicate it's encrypted
+        return $"ENC:{Convert.ToBase64String(result)}";
+    }
+
+    /// <summary>
+    /// Decrypts a value that was encrypted with EncryptValue
+    /// </summary>
+    /// <param name="encryptedValue">The encrypted value (with ENC: prefix)</param>
+    /// <returns>The decrypted original value</returns>
+    public string DecryptValue(string encryptedValue)
+    {
+        if (string.IsNullOrWhiteSpace(encryptedValue))
+            return string.Empty;
+
+        // Remove ENC: prefix if present
+        var base64Value = encryptedValue.StartsWith("ENC:", StringComparison.OrdinalIgnoreCase)
+            ? encryptedValue.Substring(4)
+            : encryptedValue;
+
+        var fullCipher = Convert.FromBase64String(base64Value);
+
+        using var aes = Aes.Create();
+        aes.Key = _keyBytes;
+        aes.Mode = CipherMode.CBC;
+        aes.Padding = PaddingMode.PKCS7;
+
+        // Extract IV (first 16 bytes) and encrypted data
+        var iv = new byte[16];
+        var cipherText = new byte[fullCipher.Length - 16];
+        Buffer.BlockCopy(fullCipher, 0, iv, 0, 16);
+        Buffer.BlockCopy(fullCipher, 16, cipherText, 0, cipherText.Length);
+
+        aes.IV = iv;
+
+        using var decryptor = aes.CreateDecryptor();
+        var decryptedBytes = decryptor.TransformFinalBlock(cipherText, 0, cipherText.Length);
+
+        return Encoding.UTF8.GetString(decryptedBytes);
     }
 
     /// <summary>
