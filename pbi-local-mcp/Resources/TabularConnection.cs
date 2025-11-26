@@ -189,8 +189,36 @@ public class TabularConnection : ITabularConnection, IDisposable
                 for (int i = 0; i < reader.FieldCount; i++)
                 {
                     var name = reader.GetName(i);
-                    var value = reader.IsDBNull(i) ? DBNull.Value : reader.GetValue(i);
-                    row[name] = value;
+                    if (reader.IsDBNull(i))
+                    {
+                        row[name] = DBNull.Value;
+                    }
+                    else
+                    {
+                        var value = reader.GetValue(i);
+
+                        // Check if this is a nested rowset (common in DMV queries like PARAMETERINFO)
+                        if (value is AdomdDataReader nestedReader)
+                        {
+                            var nestedResults = new List<Dictionary<string, object?>>();
+                            while (nestedReader.Read())
+                            {
+                                var nestedRow = new Dictionary<string, object?>();
+                                for (int j = 0; j < nestedReader.FieldCount; j++)
+                                {
+                                    var nestedName = nestedReader.GetName(j);
+                                    var nestedValue = nestedReader.IsDBNull(j) ? null : nestedReader.GetValue(j);
+                                    nestedRow[nestedName] = nestedValue;
+                                }
+                                nestedResults.Add(nestedRow);
+                            }
+                            row[name] = nestedResults;
+                        }
+                        else
+                        {
+                            row[name] = value;
+                        }
+                    }
                 }
                 results.Add(row);
             }
@@ -208,6 +236,15 @@ public class TabularConnection : ITabularConnection, IDisposable
             // McpException is only for MCP protocol-level errors, not database query failures
             throw new Exception(enhancedMessage, ex);
         }
+    }
+
+    /// <summary>
+    /// Compatibility overload: execute a DAX query with cancellation token (legacy tests expect this signature).
+    /// Delegates to the (query, QueryType, CancellationToken) implementation using default QueryType.DAX.
+    /// </summary>
+    public virtual async Task<IEnumerable<Dictionary<string, object?>>> ExecAsync(string query, CancellationToken cancellationToken)
+    {
+        return await ExecAsync(query, QueryType.DAX, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -500,9 +537,16 @@ public class TabularConnection : ITabularConnection, IDisposable
         {
             ct.ThrowIfCancellationRequested();
 
-            int tableCount = await GetCountAsync("SELECT COUNT(*) AS C FROM $SYSTEM.TMSCHEMA_TABLES", ct);
-            int measureCount = await GetCountAsync("SELECT COUNT(*) AS C FROM $SYSTEM.TMSCHEMA_MEASURES", ct);
-            int columnCount = await GetCountAsync("SELECT COUNT(*) AS C FROM $SYSTEM.TMSCHEMA_COLUMNS", ct);
+            // Query tables, measures, and columns sequentially (ADOMD connection doesn't support concurrent operations)
+            // COUNT() is not supported in DMV queries, so we count in C#
+            var tables = await ExecAsync("SELECT * FROM $SYSTEM.TMSCHEMA_TABLES", QueryType.DMV, ct);
+            int tableCount = tables.Count();
+
+            var measures = await ExecAsync("SELECT * FROM $SYSTEM.TMSCHEMA_MEASURES", QueryType.DMV, ct);
+            int measureCount = measures.Count();
+
+            var columns = await ExecAsync("SELECT * FROM $SYSTEM.TMSCHEMA_COLUMNS", QueryType.DMV, ct);
+            int columnCount = columns.Count();
 
             DateTime? lastRefreshed = null;
             try
@@ -535,7 +579,8 @@ public class TabularConnection : ITabularConnection, IDisposable
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _logger.LogDebug(ex, "Failed to build schema summary");
+            _logger.LogError(ex, "DIAGNOSTIC: Failed to build schema summary. Port={Port}, DbId={DbId}, ConnectionString={ConnectionString}",
+                _port, _databaseId, _connectionString);
             // Return empty summary to avoid throwing for metadata endpoints
             var fallback = new SchemaSummary(0, 0, 0, null);
             lock (this)
@@ -544,6 +589,41 @@ public class TabularConnection : ITabularConnection, IDisposable
                 _schemaCacheExpiry = DateTime.UtcNow + TimeSpan.FromSeconds(10);
             }
             return fallback;
+        }
+    }
+
+    /// <summary>
+    /// Validates that the connection has an active Power BI instance with a loaded model.
+    /// Throws PowerBiConnectionException if no instance is connected or model is not loaded.
+    /// </summary>
+    /// <exception cref="PowerBiConnectionException">Thrown when no Power BI instance is connected or no model is loaded</exception>
+    public async Task ValidateConnectionAsync()
+    {
+        try
+        {
+            // Try to get schema summary which validates connection and model presence
+            var summary = await GetSchemaSummaryAsync();
+
+            // Check if any tables exist in the model
+            if (summary.TableCount == 0 && summary.MeasureCount == 0 && summary.ColumnCount == 0)
+            {
+                throw new PowerBiConnectionException(
+                    "No Power BI model detected. Please open a Power BI file (.pbix) in Power BI Desktop with a valid data model.");
+            }
+
+            _logger.LogDebug("Connection validated successfully. Model has {TableCount} tables, {MeasureCount} measures, {ColumnCount} columns",
+                summary.TableCount, summary.MeasureCount, summary.ColumnCount);
+        }
+        catch (PowerBiConnectionException)
+        {
+            // Re-throw our own exception
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Connection validation failed");
+            throw new PowerBiConnectionException(
+                "No Power BI Desktop instance is connected. Please open a Power BI file (.pbix) in Power BI Desktop and try again.", ex);
         }
     }
 

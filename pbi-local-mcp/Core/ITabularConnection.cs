@@ -19,6 +19,14 @@ public interface ITabularConnection
         QueryType queryType = QueryType.DAX);
 
     /// <summary>
+    /// Compatibility overload: execute a DAX query with cancellation token (legacy tests expect this signature).
+    /// Delegates to the (query, QueryType, CancellationToken) implementation using default QueryType.DAX.
+    /// </summary>
+    Task<IEnumerable<Dictionary<string, object?>>> ExecAsync(
+        string query,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Executes a query (DAX or DMV) with cancellation support and returns the results.
     /// </summary>
     /// <param name="query">The query to execute.</param>
@@ -79,6 +87,13 @@ public interface ITabularConnection
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Schema summary containing table, measure and column counts.</returns>
     Task<SchemaSummary> GetSchemaSummaryAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Validates that the connection has an active Power BI instance with a loaded model.
+    /// Throws PowerBiConnectionException if no instance is connected or model is not loaded.
+    /// </summary>
+    /// <exception cref="PowerBiConnectionException">Thrown when no Power BI instance is connected or no model is loaded</exception>
+    Task ValidateConnectionAsync();
 }
 
 /// <summary>

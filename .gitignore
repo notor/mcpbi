@@ -79,3 +79,4 @@ image.png
 
 # IDE workspace files
 *.code-workspace
+docs/dev

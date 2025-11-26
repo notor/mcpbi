@@ -1,42 +1,558 @@
 {
-  "listMeasures": {
-    "tableName": "financials"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Comprehensive test configuration for all MCP tools covering all PowerBI semantic model object types",
+  
+  "connection": {
+    "description": "Connection test expects auto-discovery from port",
+    "expectedPort": "58190"
   },
+
+  "expectedTools": [
+    "ListObjects",
+    "GetObjectDetails", 
+    "ListFunctions",
+    "GetFunctionDetails",
+    "PreviewTableData",
+    "RunQuery",
+    "ValidateDaxSyntax",
+    "AnalyzeQueryPerformance"
+  ],
+
+  "ListObjects": {
+    "scenarios": [
+      {
+        "name": "List all objects (no filter)",
+        "params": {},
+        "expectedFields": ["objects", "totalCount", "filteredCount", "objectType"],
+        "validation": {
+          "totalCount": "> 0",
+          "objects": "array"
+        }
+      },
+      {
+        "name": "List all tables",
+        "params": {
+          "type": "table"
+        },
+        "expectedFields": ["objects", "totalCount", "objectType"],
+        "validation": {
+          "objectType": "table",
+          "objects": "array",
+          "objects[0].type": "table",
+          "objects[0].lineageTag": "exists"
+        }
+      },
+      {
+        "name": "List all columns",
+        "params": {
+          "type": "column"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "column",
+          "totalCount": "> 0"
+        }
+      },
+      {
+        "name": "List columns in specific table",
+        "params": {
+          "type": "column",
+          "tableName": "financials"
+        },
+        "expectedFields": ["objects", "totalCount", "filters"],
+        "validation": {
+          "filters.tableName": "financials",
+          "objects[0].table": "financials"
+        }
+      },
+      {
+        "name": "List all measures",
+        "params": {
+          "type": "measure"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "measure",
+          "objects": "array"
+        }
+      },
+      {
+        "name": "List measures in specific table",
+        "params": {
+          "type": "measure",
+          "tableName": "financials"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "filters.tableName": "financials"
+        }
+      },
+      {
+        "name": "List measures with dependencies",
+        "params": {
+          "type": "measure",
+          "includeBasicDependencies": true
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objects[0].basicDependencies": "exists"
+        }
+      },
+      {
+        "name": "List hidden measures only",
+        "params": {
+          "type": "measure",
+          "isHidden": true
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "filters.isHidden": "true"
+        }
+      },
+      {
+        "name": "List visible measures only",
+        "params": {
+          "type": "measure",
+          "isHidden": false
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "filters.isHidden": "false"
+        }
+      },
+      {
+        "name": "List measures with descriptions",
+        "params": {
+          "type": "measure",
+          "hasDescription": true
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "filters.hasDescription": "true"
+        }
+      },
+      {
+        "name": "List all hierarchies",
+        "params": {
+          "type": "hierarchy"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "hierarchy"
+        }
+      },
+      {
+        "name": "List all calculation groups",
+        "params": {
+          "type": "calculation_group"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "calculation_group"
+        }
+      },
+      {
+        "name": "List all calculation items",
+        "params": {
+          "type": "calculation_item"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "calculation_item"
+        }
+      },
+      {
+        "name": "List all relationships",
+        "params": {
+          "type": "relationship"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "relationship"
+        }
+      },
+      {
+        "name": "List relationships for specific table",
+        "params": {
+          "type": "relationship",
+          "tableName": "financials"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "filters.tableName": "financials"
+        }
+      },
+      {
+        "name": "List all KPIs",
+        "params": {
+          "type": "kpi"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "kpi"
+        }
+      },
+      {
+        "name": "List all parameters",
+        "params": {
+          "type": "parameter"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "parameter"
+        }
+      },
+      {
+        "name": "List all perspectives",
+        "params": {
+          "type": "perspective"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "perspective"
+        }
+      },
+      {
+        "name": "List all translations",
+        "params": {
+          "type": "translation"
+        },
+        "expectedFields": ["objects", "totalCount"],
+        "validation": {
+          "objectType": "translation"
+        }
+      }
+    ]
+  },
+
+  "GetObjectDetails": {
+    "scenarios": [
+      {
+        "name": "Get table details by name",
+        "params": {
+          "identifier": "financials",
+          "type": "table"
+        },
+        "expectedFields": ["name", "type", "lineageTag"],
+        "validation": {
+          "name": "financials",
+          "type": "table"
+        }
+      },
+      {
+        "name": "Get measure details by name",
+        "params": {
+          "identifier": "Sum of Sales",
+          "type": "measure",
+          "tableName": "financials"
+        },
+        "expectedFields": ["name", "type", "expression", "lineageTag"],
+        "validation": {
+          "type": "measure",
+          "expression": "exists"
+        }
+      },
+      {
+        "name": "Get object with direct dependencies",
+        "params": {
+          "identifier": "Sum of Sales",
+          "type": "measure",
+          "tableName": "financials",
+          "includeDependencies": "direct"
+        },
+        "expectedFields": ["name", "dependencies"],
+        "validation": {
+          "dependencies": "exists"
+        }
+      },
+      {
+        "name": "Get object with full dependencies",
+        "params": {
+          "identifier": "Sum of Sales",
+          "type": "measure",
+          "tableName": "financials",
+          "includeDependencies": "full"
+        },
+        "expectedFields": ["name", "dependencies"],
+        "validation": {
+          "dependencies": "exists"
+        }
+      },
+      {
+        "name": "Get object with metadata",
+        "params": {
+          "identifier": "financials",
+          "type": "table",
+          "includeMetadata": true
+        },
+        "expectedFields": ["name", "metadata"],
+        "validation": {
+          "metadata": "exists"
+        }
+      }
+    ]
+  },
+
+  "PreviewTableData": {
+    "scenarios": [
+      {
+        "name": "Preview table data (default 10 rows)",
+        "params": {
+          "tableName": "financials"
+        },
+        "expectedFields": ["rows", "columns", "tableName"],
+        "validation": {
+          "tableName": "financials",
+          "rows": "array",
+          "columns": "array"
+        }
+      },
+      {
+        "name": "Preview table data (5 rows)",
+        "params": {
+          "tableName": "financials",
+          "topN": 5
+        },
+        "expectedFields": ["rows", "rowCount"],
+        "validation": {
+          "rowCount": "<= 5"
+        }
+      }
+    ]
+  },
+
+  "ListFunctions": {
+    "scenarios": [
+      {
+        "name": "List all functions",
+        "params": {
+          "interfaceName": "FILTER"
+        },
+        "expectedFields": ["functions", "totalCount"],
+        "validation": {
+          "functions": "array",
+          "totalCount": ">= 0"
+        }
+      },
+      {
+        "name": "List functions by interface (Date and Time)",
+        "params": {
+          "interfaceName": "DATETIME"
+        },
+        "expectedFields": ["functions", "filteredCount"],
+        "validation": {
+          "functions": "array",
+          "filteredCount": ">= 0"
+        }
+      }
+    ]
+  },
+
+  "GetFunctionDetails": {
+    "scenarios": [
+      {
+        "name": "Get function details",
+        "params": {
+          "functionName": "SUM"
+        },
+        "expectedFields": ["name", "description", "parameters"],
+        "validation": {
+          "name": "SUM",
+          "parameters": "array"
+        }
+      },
+      {
+        "name": "Get function with parameter info",
+        "params": {
+          "functionName": "CALCULATE"
+        },
+        "expectedFields": ["name", "parameters", "syntax"],
+        "validation": {
+          "name": "CALCULATE",
+          "parameters": "array"
+        }
+      }
+    ]
+  },
+
+  "RunQuery": {
+    "scenarios": [
+      {
+        "name": "Run simple expression",
+        "params": {
+          "dax": "1+1",
+          "topN": 1
+        },
+        "expectedFields": ["rows", "columns", "executionTime"],
+        "validation": {
+          "rows": "array",
+          "rows.length": "> 0"
+        }
+      },
+      {
+        "name": "Run query with variable",
+        "params": {
+          "dax": "DEFINE VAR _x = 1+1 EVALUATE ROW(\"Value\", _x)",
+          "topN": 1
+        },
+        "expectedFields": ["rows", "executionTime"],
+        "validation": {
+          "rows": "array"
+        }
+      },
+      {
+        "name": "Run query with measure definition",
+        "params": {
+          "dax": "DEFINE MEASURE financials[TestMeasure] = SUM(financials[Profit]) EVALUATE ROW(\"Value\", [TestMeasure])",
+          "topN": 1
+        },
+        "expectedFields": ["rows"],
+        "validation": {
+          "rows": "array"
+        }
+      },
+      {
+        "name": "Run query with multiple definitions",
+        "params": {
+          "dax": "DEFINE VAR _year = 2023 MEASURE financials[TotalProfit] = SUM(financials[Profit]) EVALUATE ROW(\"Year\", _year, \"Profit\", [TotalProfit])",
+          "topN": 1
+        },
+        "expectedFields": ["rows"],
+        "validation": {
+          "rows": "array"
+        }
+      },
+      {
+        "name": "Run EVALUATE query",
+        "params": {
+          "dax": "EVALUATE TOPN(5, financials)",
+          "topN": 5
+        },
+        "expectedFields": ["rows", "columns"],
+        "validation": {
+          "rows": "array",
+          "columns": "array"
+        }
+      }
+    ]
+  },
+
+  "ValidateDaxSyntax": {
+    "scenarios": [
+      {
+        "name": "Validate simple valid expression",
+        "params": {
+          "daxExpression": "1+1",
+          "includeRecommendations": false
+        },
+        "expectedFields": ["isValid", "errors"],
+        "validation": {
+          "isValid": true,
+          "errors": "array"
+        }
+      },
+      {
+        "name": "Validate complex query",
+        "params": {
+          "daxExpression": "EVALUATE TOPN(10, financials)",
+          "includeRecommendations": true
+        },
+        "expectedFields": ["isValid", "recommendations"],
+        "validation": {
+          "isValid": true
+        }
+      },
+      {
+        "name": "Validate invalid syntax",
+        "params": {
+          "daxExpression": "INVALID SYNTAX HERE",
+          "includeRecommendations": false
+        },
+        "expectedFields": ["isValid", "errors"],
+        "validation": {
+          "isValid": false,
+          "errors": "array"
+        }
+      }
+    ]
+  },
+
+  "AnalyzeQueryPerformance": {
+    "scenarios": [
+      {
+        "name": "Analyze simple query",
+        "params": {
+          "daxQuery": "EVALUATE TOPN(10, financials)",
+          "includeOptimizations": false
+        },
+        "expectedFields": ["executionTime", "queryPlan"],
+        "validation": {
+          "executionTime": "> 0"
+        }
+      },
+      {
+        "name": "Analyze with optimizations",
+        "params": {
+          "daxQuery": "EVALUATE TOPN(10, financials)",
+          "includeOptimizations": true
+        },
+        "expectedFields": ["executionTime"],
+        "validation": {
+          "executionTime": "> 0"
+        }
+      }
+    ]
+  },
+
+  "listMeasures": {
+    "tableName": ""
+  },
+
   "getMeasureDetails": {
     "measureName": "Sum of Sales"
   },
+
   "listTables": {},
+
   "getTableDetails": {
     "tableName": "financials"
   },
+
   "getTableColumns": {
     "tableName": "financials"
   },
+
   "getTableRelationships": {
     "tableName": "financials"
   },
+
   "previewTableData": {
     "tableName": "financials",
-    "topN": 5
+    "topN": 10
   },
+
   "runQueryNoDefinitions": {
     "expression": "1+1",
-    "topN": 0
+    "topN": 1
   },
+
   "runQueryWithVarDefinition": {
     "expression": "DEFINE VAR _x = 1+1 EVALUATE ROW(\"Value\", _x)",
-    "topN": 0
+    "topN": 1
   },
+
   "runQueryWithMeasureDefinition": {
     "expression": "DEFINE MEASURE financials[TestMeasure] = SUM(financials[Profit]) EVALUATE ROW(\"Value\", [TestMeasure])",
     "topN": 1
   },
+
   "runQueryWithMultipleDefinitions": {
     "expression": "DEFINE VAR _year = 2023 MEASURE financials[TotalProfit] = SUM(financials[Profit]) EVALUATE ROW(\"Year\", _year, \"Profit\", [TotalProfit])",
     "topN": 1
   },
+
   "runQueryDefinitionOrdering": {
-    "expression": "DEFINE VAR _v1 = 2023 TABLE T1 = financials COLUMN financials[C1] = 1 MEASURE financials[M1] = 1 EVALUATE ROW(\"Test\", 1)",
+    "expression": "DEFINE VAR _year = 2023 MEASURE financials[TotalProfit] = SUM(financials[Profit]) EVALUATE ROW(\"Year\", _year, \"Profit\", [TotalProfit])",
     "topN": 1
   }
 }

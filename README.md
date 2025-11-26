@@ -13,65 +13,61 @@ It connects to a local running instance of Tabular models using the [AdomdConnec
 
 Using this connection, the server then allows clients to execute [DAX-queries](https://www.sqlbi.com/articles/execute-dax-queries-through-ole-db-and-adomd-net/) and retrieve model metadata (using DMV queries) through pre-defined tools for high accuracy, as well as custom DAX queries for debugging and development.
 
-This MCP server enables communication between clients and Power BI tabular models via ADOMD.NET, supporting both predefined metadata queries and flexible DAX queries with full DEFINE block capabilities for advanced analysis.
+## Features
+
+## Configuration Options
+
+### Port
+Specify the Power BI Desktop instance port to connect to (required).
+
+```bash
+# Example: Connect to Power BI Desktop instance on port 56751
+dotnet run -- --port 56751
+```
+
+### Obfuscation
+Protect sensitive data with configurable encryption strategies:
+- **None** (default): No obfuscation
+- **All**: Mask all values
+- **Dimensions**: Mask only text/date fields (keep numeric data visible)
+- **Facts**: Mask only numeric fields (keep dimensional context)
+
+```bash
+# Example: Protect customer/product names while keeping sales figures visible
+dotnet run -- --port 56751 --obfuscation-strategy dimensions --encryption-key "YourSecureKey123!"
+```
+
+### Output Truncation
+Automatic row limiting with comprehensive metadata:
+- Default 500-row limit (configurable)
+- Response includes: `totalRows`, `displayedRows`, `truncated`, `hasMore`
+
+```bash
+# Example: Increase row limit for analysis
+dotnet run -- --port 56751 --max-rows 2000
+```
 
 ## Tools
 
-MCPBI provides 10 tools that enable LLM clients to explore, analyze, and debug your Power BI models:
+#### list_objects
+- Lists all objects in the model (tables, columns, measures, relationships)
+- Returns object type, name, and basic metadata
 
-### Model Exploration Tools
+#### get_object_details
+- Retrieves detailed metadata for a specific object (table, column, measure)
+- Returns properties, data types, relationships, and dependencies
 
-**ListTables**
-- Lists all tables in your model with metadata (storage mode, visibility, lineage tags)
-- **Use case:** Quickly discover available tables when starting development or understanding model structure
+#### list_functions
+- Lists available DAX functions with optional filtering by category or origin
+- Returns function name, description, interface classification, and origin
 
-**GetTableDetails**
-- Retrieves detailed metadata for a specific table
-- **Use case:** Understand table properties, expressions, and configuration before writing DAX
+#### get_function_details
+- Retrieves comprehensive details for a specific DAX function including full parameter information
+- Returns function signature, parameter requirements, return type, and DirectQuery compatibility
 
-**GetTableColumns**
-- Lists all columns in a table with data types, formats, and properties
-- **Use case:** Identify available columns and their characteristics when building measures or queries
-
-**GetTableRelationships**
-- Shows all relationships connected to a table (cardinality, filter direction, active status)
-- **Use case:** Understand data model connections for correct DAX context and filter propagation
-
-### Measure Management Tools
-
-**ListMeasures**
-- Lists all measures with names, tables, data types, and visibility (optionally filtered by table)
-- **Use case:** Discover existing measures to avoid duplication or find patterns to follow
-
-**GetMeasureDetails**
-- Retrieves complete measure definition including full DAX expression
-- **Use case:** Study existing measure logic, troubleshoot calculations, or prepare for refactoring
-
-### Data Exploration Tools
-
-**PreviewTableData**
-- Returns top N rows from a table
-- **Use case:** Verify data structure, check sample values, or validate data loads during development
-
-### DAX Development Tools
-
-**RunQuery**
-- Executes DAX queries including complete DEFINE blocks, EVALUATE statements, or simple expressions
-- Returns structured results or detailed error information for MCP compatibility
-- **Use case:** Test measures, debug calculations, analyze data, or validate query results before implementing in reports
-
-**ValidateDaxSyntax**
-- Validates DAX expressions and provides complexity metrics
-- Returns syntax errors, warnings, and recommendations for best practices
-- **Use case:** Catch syntax errors early, get improvement suggestions, and assess expression complexity before deployment
-
-**AnalyzeQueryPerformance**
-- Analyzes query execution time and performance characteristics
-- Provides performance ratings, complexity factors, and optimization suggestions
-- **Use case:** Identify slow queries, understand bottlenecks, and optimize DAX for better report performance
-
-## How These Tools Help with Power BI Development
-
+#### run_query
+- Executes a custom DAX query against the model
+- Returns query results with metadata (total rows, truncated status)
 ### 1. **Model Discovery**
 Use [`ListTables`], [`GetTableColumns`], and [`GetTableRelationships`] to quickly understand an unfamiliar model's structure without manually clicking through Power BI Desktop.
 
@@ -81,8 +77,14 @@ LLM clients can use [`ListMeasures`] and [`GetMeasureDetails`] to learn your exi
 ### 3. **Debugging**
 Combine [`RunQuery`] with [`ValidateDaxSyntax`] to iteratively test and refine DAX expressions with immediate feedback on syntax and results.
 
-### 4. **Performance Optimization**
-Use [`AnalyzeQueryPerformance`] to identify slow queries, then iterate improvements with [`RunQuery`] to verify performance gains.
+#### validate_query
+- Validates DAX query syntax without execution
+- Returns syntax correctness and error messages if applicable
+
+#### analyze_query_performance
+- Analyzes DAX query performance and provides optimization suggestions
+- Returns execution time, resource usage, and improvement recommendations
+
 
 ## Installation
 # Setup Instructions
@@ -94,7 +96,7 @@ Use [`AnalyzeQueryPerformance`] to identify slow queries, then iterate improveme
 - Visual Studio Code (for MCP server integration)
 - [.NET 8.0 Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
 
-### Setup from Prebuilt Release (Recommended)
+### Setup from Prebuilt Release
 
 1. **Download the release** from the [Releases](releases/) directory or GitHub releases page and extract to your preferred location.
 
@@ -145,7 +147,9 @@ If you don't have Tabular Editor, you can use the included discovery tool to fin
            "PreviewTableData",
            "RunQuery",
            "ValidateDaxSyntax",
-           "AnalyzeQueryPerformance"
+           "AnalyzeQueryPerformance",
+           "ListFunctions",
+           "GetFunctionDetails"
          ]
        }
      }
@@ -159,7 +163,7 @@ If you don't have Tabular Editor, you can use the included discovery tool to fin
 1. **Clone the repository**:
    ```sh
    git clone <repository-url>
-   cd tabular-mcp
+   cd MCPBI
    ```
 
 2. **Build the project**:
@@ -182,11 +186,11 @@ If you don't have Tabular Editor, you can use the included discovery tool to fin
        "mcpbi-dev": {
          "type": "stdio",
          "command": "dotnet",
-         "cwd": "path\\to\\tabular-mcp",
-         "envFile": "path\\to\\tabular-mcp\\.env",
+         "cwd": "path\\to\\MCPBI",
+         "envFile": "path\\to\\MCPBI\\.env",
          "args": [
            "exec",
-           "path\\to\\tabular-mcp\\pbi-local-mcp\\bin\\Debug\\net8.0\\pbi-local-mcp.dll"
+           "path\\to\\MCPBI\\pbi-local-mcp\\bin\\Debug\\net8.0\\pbi-local-mcp.dll"
          ],
          "disabled": false,
          "alwaysAllow": [
@@ -199,13 +203,15 @@ If you don't have Tabular Editor, you can use the included discovery tool to fin
            "PreviewTableData",
            "RunQuery",
            "ValidateDaxSyntax",
-           "AnalyzeQueryPerformance"
+           "AnalyzeQueryPerformance",
+           "ListFunctions",
+           "GetFunctionDetails"
          ]
        }
      }
    }
    ```
-   Replace `path\\to\\tabular-mcp` with your actual repository path.
+   Replace `path\\to\\MCPBI` with your actual repository path.
 
 
 ### Configuration Notes

@@ -1,6 +1,8 @@
 using System.CommandLine;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 using Microsoft.AnalysisServices.AdomdClient;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,10 +10,12 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 using pbi_local_mcp.Configuration;
 using pbi_local_mcp.Core;
+using pbi_local_mcp.Tools;
 
 namespace pbi_local_mcp.Resources;
 
@@ -75,7 +79,22 @@ public class ServerConfigurator
                 var logger = serviceProvider.GetRequiredService<ILogger<TabularConnection>>();
                 return new TabularConnection(config, logger);
             })
-            .AddSingleton<DaxTools>();
+            .AddSingleton<TruncationService>(serviceProvider =>
+            {
+                var maxRowsStr = Environment.GetEnvironmentVariable("PBI_MAX_ROWS") ?? "500";
+                var maxRows = int.TryParse(maxRowsStr, out var parsed) ? parsed : 500;
+                return new TruncationService(maxRows);
+            })
+            .AddSingleton<DataObfuscationService>(serviceProvider =>
+            {
+                var strategy = Environment.GetEnvironmentVariable("PBI_OBFUSCATION_STRATEGY") ?? "none";
+                var encryptionKey = Environment.GetEnvironmentVariable("PBI_ENCRYPTION_KEY");
+                return new DataObfuscationService(strategy, encryptionKey);
+            })
+            .AddSingleton<PowerBiResourceProvider>()
+            .AddSingleton<QueryExecutionTools>()
+            .AddSingleton<QueryAnalysisTools>()
+            .AddSingleton<ObjectRetrievalTools>();
 
         _logger.LogInformation("Core services registered.");
 
@@ -83,7 +102,92 @@ public class ServerConfigurator
         var mcp = builder.Services
             .AddMcpServer()
             .WithStdioServerTransport()
-            .WithToolsFromAssembly();
+            .WithToolsFromAssembly()
+            .WithListResourcesHandler(async (context, cancellationToken) =>
+            {
+                var resourceProvider = context.Services?.GetRequiredService<PowerBiResourceProvider>();
+                var logger = context.Services?.GetService<ILogger<ServerConfigurator>>();
+
+                if (resourceProvider == null)
+                {
+                    logger?.LogWarning("PowerBiResourceProvider not available");
+                    return new ModelContextProtocol.Protocol.ListResourcesResult { Resources = [] };
+                }
+
+                logger?.LogDebug("Handling ListResources request");
+                var resources = await resourceProvider.ListResourcesAsync(cancellationToken);
+
+                return new ModelContextProtocol.Protocol.ListResourcesResult
+                {
+                    Resources = resources.Select(r => new ModelContextProtocol.Protocol.Resource
+                    {
+                        Uri = r.Uri,
+                        Name = r.Uri.Split('/').Last(),
+                        Description = r.Description,
+                        MimeType = "application/json"
+                    }).ToList()
+                };
+            })
+            .WithReadResourceHandler(async (context, cancellationToken) =>
+            {
+                var resourceProvider = context.Services?.GetRequiredService<PowerBiResourceProvider>();
+                var logger = context.Services?.GetService<ILogger<ServerConfigurator>>();
+
+                if (resourceProvider == null)
+                {
+                    throw new Exception("PowerBiResourceProvider not available");
+                }
+
+                var uri = context.Params?.Uri ?? throw new Exception("Resource URI is required");
+                logger?.LogDebug("Handling ReadResource request for URI: {Uri}", uri);
+
+                var content = await resourceProvider.ReadResourceAsync(uri, cancellationToken);
+
+                return new ModelContextProtocol.Protocol.ReadResourceResult
+                {
+                    Contents =
+                    [
+                        new ModelContextProtocol.Protocol.TextResourceContents
+                        {
+                            Uri = uri,
+                            MimeType = "application/json",
+                            Text = System.Text.Json.JsonSerializer.Serialize(content)
+                        }
+                    ]
+                };
+            })
+            .AddListToolsFilter(next => async (context, cancellationToken) =>
+            {
+                // Call the next filter in the pipeline
+                var result = await next(context, cancellationToken);
+
+                var logger = context.Services?.GetService<ILogger<ServerConfigurator>>();
+                var resourceProvider = context.Services?.GetService<PowerBiResourceProvider>();
+
+                if (resourceProvider == null || logger == null)
+                {
+                    logger?.LogWarning("ResourceProvider or Logger not available in context");
+                    return result;
+                }
+
+                // Get interface names with fallback
+                var interfaceNames = await GetInterfaceNamesWithFallbackAsync(resourceProvider, logger, cancellationToken);
+
+                // Inject enum values into ListFunctions tool schema
+                if (result.Tools != null)
+                {
+                    foreach (var tool in result.Tools)
+                    {
+                        if (tool.Name == "ListFunctions")
+                        {
+                            InjectEnumIntoSchema(tool, "interfaceName", interfaceNames, logger);
+                            break;
+                        }
+                    }
+                }
+
+                return result;
+            });
 
         // Startup banner (replaces prior temporary diagnostic reflection block)
         try
@@ -180,13 +284,33 @@ public class ServerConfigurator
             name: "--port",
             description: "PowerBI port number to connect to");
 
+        var maxRowsOption = new Option<int>(
+            name: "--max-rows",
+            description: "Maximum number of rows to return in query results",
+            getDefaultValue: () => 500);
+
+        var obfuscationStrategyOption = new Option<string>(
+            name: "--obfuscation-strategy",
+            description: "Data obfuscation strategy: none, all, dimensions, or facts",
+            getDefaultValue: () => "none");
+
+        var encryptionKeyOption = new Option<string?>(
+            name: "--encryption-key",
+            description: "Encryption key for data obfuscation (required if obfuscation-strategy != none, minimum 16 characters)");
+
         var rootCommand = new RootCommand("PowerBI Tabular MCP Server")
         {
-            portOption
+            portOption,
+            maxRowsOption,
+            obfuscationStrategyOption,
+            encryptionKeyOption
         };
 
         var parseResult = rootCommand.Parse(args);
         var portValue = parseResult.GetValueForOption(portOption);
+        var maxRowsValue = parseResult.GetValueForOption(maxRowsOption);
+        var obfuscationStrategyValue = parseResult.GetValueForOption(obfuscationStrategyOption);
+        var encryptionKeyValue = parseResult.GetValueForOption(encryptionKeyOption);
 
         if (!string.IsNullOrWhiteSpace(portValue))
         {
@@ -210,6 +334,40 @@ public class ServerConfigurator
             Environment.SetEnvironmentVariable("PBI_DB_ID", databaseId);
 
             _logger.LogInformation("Auto-discovered database {DatabaseId} on port {Port}", databaseId, port);
+        }
+
+        // Set max rows environment variable
+        Environment.SetEnvironmentVariable("PBI_MAX_ROWS", maxRowsValue.ToString());
+        _logger.LogInformation("Max rows set to: {MaxRows}", maxRowsValue);
+
+        // Set obfuscation strategy environment variable
+        if (!string.IsNullOrWhiteSpace(obfuscationStrategyValue))
+        {
+            var validStrategies = new[] { "none", "all", "dimensions", "facts" };
+            if (!validStrategies.Contains(obfuscationStrategyValue.ToLowerInvariant()))
+            {
+                throw new ArgumentException($"Invalid obfuscation strategy: {obfuscationStrategyValue}. Valid values: none, all, dimensions, facts");
+            }
+
+            Environment.SetEnvironmentVariable("PBI_OBFUSCATION_STRATEGY", obfuscationStrategyValue.ToLowerInvariant());
+            _logger.LogInformation("Obfuscation strategy set to: {Strategy}", obfuscationStrategyValue);
+
+            // Validate encryption key if obfuscation is enabled
+            if (obfuscationStrategyValue.ToLowerInvariant() != "none")
+            {
+                if (string.IsNullOrWhiteSpace(encryptionKeyValue))
+                {
+                    throw new ArgumentException("Encryption key is required when obfuscation strategy is not 'none'. Use --encryption-key parameter.");
+                }
+
+                if (encryptionKeyValue.Length < 16)
+                {
+                    throw new ArgumentException("Encryption key must be at least 16 characters long.");
+                }
+
+                Environment.SetEnvironmentVariable("PBI_ENCRYPTION_KEY", encryptionKeyValue);
+                _logger.LogInformation("Encryption key configured (length: {KeyLength} characters)", encryptionKeyValue.Length);
+            }
         }
     }
 
@@ -245,5 +403,129 @@ public class ServerConfigurator
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Gets interface names from the resource provider with indefinite caching and fallback values.
+    /// </summary>
+    private static readonly string[] FallbackInterfaceNames =
+    [
+        "DATETIME", "FILTER", "LOGICAL", "MATH", "STATISTICAL",
+        "TEXT", "INFORMATION", "PARENT_CHILD", "TIME_INTELLIGENCE"
+    ];
+
+    private static IEnumerable<string>? _cachedInterfaceNames;
+    private static readonly object _cacheLock = new();
+
+    private static Task<IEnumerable<string>> GetInterfaceNamesWithFallbackAsync(
+        PowerBiResourceProvider resourceProvider,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        // Return cached value if available (indefinite cache)
+        if (_cachedInterfaceNames != null)
+        {
+            return Task.FromResult(_cachedInterfaceNames);
+        }
+
+        lock (_cacheLock)
+        {
+            // Double-check after acquiring lock
+            if (_cachedInterfaceNames != null)
+            {
+                return Task.FromResult(_cachedInterfaceNames);
+            }
+
+            try
+            {
+                // Query the resource provider synchronously within lock
+                var result = resourceProvider.ReadResourceAsync("powerbi://functions/interface-names", ct)
+                    .GetAwaiter()
+                    .GetResult();
+
+                if (result is IEnumerable<string> names)
+                {
+                    var namesList = names.ToList();
+                    if (namesList.Count > 0)
+                    {
+                        _cachedInterfaceNames = namesList;
+                        logger.LogDebug("Successfully loaded {Count} interface names from resource provider", namesList.Count);
+                        return Task.FromResult(_cachedInterfaceNames);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to load interface names from resource provider, using fallback values");
+            }
+
+            // Use fallback values
+            _cachedInterfaceNames = FallbackInterfaceNames;
+            logger.LogInformation("Using fallback interface names (resource query failed or returned empty)");
+            return Task.FromResult(_cachedInterfaceNames);
+        }
+    }
+
+    /// <summary>
+    /// Injects enum values into a tool's parameter schema.
+    /// </summary>
+    private static void InjectEnumIntoSchema(
+        Tool tool,
+        string parameterName,
+        IEnumerable<string> enumValues,
+        ILogger logger)
+    {
+        try
+        {
+            // Check if InputSchema has a value (JsonElement.ValueKind != Undefined)
+            if (tool.InputSchema.ValueKind == JsonValueKind.Undefined || tool.InputSchema.ValueKind == JsonValueKind.Null)
+            {
+                logger.LogWarning("Tool {ToolName} has no InputSchema, cannot inject enum", tool.Name);
+                return;
+            }
+
+            // Parse the InputSchema as JsonNode for manipulation
+            var schemaNode = JsonNode.Parse(tool.InputSchema.GetRawText());
+            if (schemaNode == null)
+            {
+                logger.LogWarning("Failed to parse InputSchema for tool {ToolName}", tool.Name);
+                return;
+            }
+
+            // Navigate to properties -> parameterName
+            var properties = schemaNode["properties"];
+            if (properties == null)
+            {
+                logger.LogWarning("Tool {ToolName} InputSchema has no 'properties' node", tool.Name);
+                return;
+            }
+
+            var parameter = properties[parameterName];
+            if (parameter == null)
+            {
+                logger.LogWarning("Tool {ToolName} has no parameter '{ParameterName}'", tool.Name, parameterName);
+                return;
+            }
+
+            // Add enum array to the parameter
+            var enumArray = new JsonArray();
+            foreach (var value in enumValues)
+            {
+                enumArray.Add(JsonValue.Create(value));
+            }
+            parameter["enum"] = enumArray;
+
+            // Serialize back to JsonElement via JsonDocument
+            using var doc = JsonDocument.Parse(schemaNode.ToJsonString());
+            tool.InputSchema = doc.RootElement.Clone();
+
+            logger.LogDebug("Successfully injected {Count} enum values into {ToolName}.{ParameterName}",
+                enumValues.Count(), tool.Name, parameterName);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to inject enum into tool {ToolName} parameter {ParameterName}",
+                tool.Name, parameterName);
+        }
     }
 }

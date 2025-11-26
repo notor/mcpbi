@@ -1,22 +1,22 @@
 using Microsoft.Extensions.Logging.Abstractions;
 
-using pbi_local_mcp.Configuration;
-
 namespace pbi_local_mcp.Tests;
 
+/// <summary>
+/// Tests for DAX tools error handling scenarios.
+/// </summary>
 public class DaxToolsErrorHandlingTests
 {
+    /// <summary>
+    /// Tests that a DAX query with an execution error returns a structured error response.
+    /// </summary>
     [Fact]
     public async Task RunQuery_DAXError_ReturnsStructuredErrorResponse()
     {
         // Arrange
-        var port = Environment.GetEnvironmentVariable("PBI_PORT") ?? "12345";
-        var dbId = Environment.GetEnvironmentVariable("PBI_DB_ID") ?? "TestDB";
-        var config = new PowerBiConfig { Port = port, DbId = dbId };
-        var logger = NullLogger<TabularConnection>.Instance;
-        var connection = new TabularConnection(config, logger);
-        var daxToolsLogger = NullLogger<DaxTools>.Instance;
-        var daxTools = new DaxTools(connection, daxToolsLogger);
+        var connection = TestConnectionHelper.CreateConnection();
+        var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Execute query with invalid DAX that will cause execution error
         var result = await daxTools.RunQuery("EVALUATE BADFUNCTION()");
@@ -39,17 +39,16 @@ public class DaxToolsErrorHandlingTests
         Assert.Contains("EVALUATE BADFUNCTION()", originalQueryProperty!.GetValue(queryInfo)!.ToString());
     }
 
+    /// <summary>
+    /// Tests that a query with validation errors returns a structured error response.
+    /// </summary>
     [Fact]
     public async Task RunQuery_ValidationError_ReturnsStructuredErrorResponse()
     {
         // Arrange
-        var port = Environment.GetEnvironmentVariable("PBI_PORT") ?? "12345";
-        var dbId = Environment.GetEnvironmentVariable("PBI_DB_ID") ?? "TestDB";
-        var config = new PowerBiConfig { Port = port, DbId = dbId };
-        var logger = NullLogger<TabularConnection>.Instance;
-        var connection = new TabularConnection(config, logger);
-        var daxToolsLogger = NullLogger<DaxTools>.Instance;
-        var daxTools = new DaxTools(connection, daxToolsLogger);
+        var connection = TestConnectionHelper.CreateConnection();
+        var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Test with an empty query that will trigger validation error
         var result = await daxTools.RunQuery("");
@@ -72,17 +71,16 @@ public class DaxToolsErrorHandlingTests
         Assert.Contains("DAX query cannot be null or empty", messageProperty!.GetValue(errorDetails)!.ToString());
     }
 
+    /// <summary>
+    /// Tests that a query with unbalanced parentheses returns a structured error response.
+    /// </summary>
     [Fact]
     public async Task RunQuery_UnbalancedParentheses_ReturnsStructuredErrorResponse()
     {
         // Arrange
-        var port = Environment.GetEnvironmentVariable("PBI_PORT") ?? "12345";
-        var dbId = Environment.GetEnvironmentVariable("PBI_DB_ID") ?? "TestDB";
-        var config = new PowerBiConfig { Port = port, DbId = dbId };
-        var logger = NullLogger<TabularConnection>.Instance;
-        var connection = new TabularConnection(config, logger);
-        var daxToolsLogger = NullLogger<DaxTools>.Instance;
-        var daxTools = new DaxTools(connection, daxToolsLogger);
+        var connection = TestConnectionHelper.CreateConnection();
+        var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Test with unbalanced parentheses
         var result = await daxTools.RunQuery("SUM(Sales[Amount]");
@@ -106,17 +104,16 @@ public class DaxToolsErrorHandlingTests
         Assert.Contains(suggestionsList, s => s.Contains("unbalanced parentheses"));
     }
 
+    /// <summary>
+    /// Tests that a query with only whitespace returns a structured error response.
+    /// </summary>
     [Fact]
     public async Task RunQuery_WhitespaceOnly_ReturnsStructuredErrorResponse()
     {
         // Arrange
-        var port = Environment.GetEnvironmentVariable("PBI_PORT") ?? "12345";
-        var dbId = Environment.GetEnvironmentVariable("PBI_DB_ID") ?? "TestDB";
-        var config = new PowerBiConfig { Port = port, DbId = dbId };
-        var logger = NullLogger<TabularConnection>.Instance;
-        var connection = new TabularConnection(config, logger);
-        var daxToolsLogger = NullLogger<DaxTools>.Instance;
-        var daxTools = new DaxTools(connection, daxToolsLogger);
+        var connection = TestConnectionHelper.CreateConnection();
+        var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Test with whitespace-only query
         var result = await daxTools.RunQuery("   \t\n  ");
@@ -133,17 +130,16 @@ public class DaxToolsErrorHandlingTests
         Assert.Equal("validation", errorCategoryProperty.GetValue(result));
     }
 
+    /// <summary>
+    /// Tests that an invalid DEFINE query returns a structured error response.
+    /// </summary>
     [Fact]
     public async Task RunQuery_InvalidDefineQuery_ReturnsStructuredErrorResponse()
     {
         // Arrange
-        var port = Environment.GetEnvironmentVariable("PBI_PORT") ?? "12345";
-        var dbId = Environment.GetEnvironmentVariable("PBI_DB_ID") ?? "TestDB";
-        var config = new PowerBiConfig { Port = port, DbId = dbId };
-        var logger = NullLogger<TabularConnection>.Instance;
-        var connection = new TabularConnection(config, logger);
-        var daxToolsLogger = NullLogger<DaxTools>.Instance;
-        var daxTools = new DaxTools(connection, daxToolsLogger);
+        var connection = TestConnectionHelper.CreateConnection();
+        var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
+        var daxTools = new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
 
         // Act - Test with invalid DEFINE query structure (missing EVALUATE)
         var result = await daxTools.RunQuery("DEFINE MEASURE Sales[Total] = SUM(Sales[Amount])");

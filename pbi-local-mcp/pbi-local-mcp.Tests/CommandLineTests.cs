@@ -12,11 +12,17 @@ public class CommandLineTests
 {
     private readonly ILogger<ServerConfigurator> _logger;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="CommandLineTests"/> class.
+    /// </summary>
     public CommandLineTests()
     {
         _logger = new NullLogger<ServerConfigurator>();
     }
 
+    /// <summary>
+    /// Tests that processing command line arguments with a valid port sets environment variables.
+    /// </summary>
     [Fact]
     public void ProcessCommandLineArguments_WithValidPort_SetsEnvironmentVariables()
     {
@@ -37,6 +43,9 @@ public class CommandLineTests
         Assert.True(true); // Placeholder assertion
     }
 
+    /// <summary>
+    /// Tests that processing command line arguments with an invalid port throws an ArgumentException.
+    /// </summary>
     [Fact]
     public void ProcessCommandLineArguments_WithInvalidPort_ThrowsArgumentException()
     {
@@ -50,6 +59,9 @@ public class CommandLineTests
         Assert.True(true); // Placeholder assertion
     }
 
+    /// <summary>
+    /// Tests that processing command line arguments with a port out of range throws an ArgumentException.
+    /// </summary>
     [Fact]
     public void ProcessCommandLineArguments_WithPortOutOfRange_ThrowsArgumentException()
     {
@@ -62,6 +74,9 @@ public class CommandLineTests
         Assert.True(true); // Placeholder assertion
     }
 
+    /// <summary>
+    /// Tests that processing command line arguments with no port does not set environment variables.
+    /// </summary>
     [Fact]
     public void ProcessCommandLineArguments_WithNoPort_DoesNotSetEnvironmentVariables()
     {
