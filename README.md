@@ -5,6 +5,8 @@ This server allows MCP-enabled LLM clients to communicate with your tabular mode
 
 *Example: Copilot querying Tabular Model via MCP*
 
+![roocodedemo](https://github.com/user-attachments/assets/5dd8b5b3-0d30-4876-b8c9-87233f336e6f)
+
 # How it works 
 
 It connects to a local running instance of Tabular models using the [AdomdConnection in ADOMD.NET](https://learn.microsoft.com/en-us/analysis-services/adomd/multidimensional-models-adomd-net-client/connections-in-adomd-net?view=asallproducts-allversions). 
@@ -66,6 +68,14 @@ dotnet run -- --port 56751 --max-rows 2000
 #### run_query
 - Executes a custom DAX query against the model
 - Returns query results with metadata (total rows, truncated status)
+### 1. **Model Discovery**
+Use [`ListTables`], [`GetTableColumns`], and [`GetTableRelationships`] to quickly understand an unfamiliar model's structure without manually clicking through Power BI Desktop.
+
+### 2. **DAX Assistance**
+LLM clients can use [`ListMeasures`] and [`GetMeasureDetails`] to learn your existing DAX patterns and suggest consistent new measures that follow your naming conventions and calculation styles.
+
+### 3. **Debugging**
+Combine [`RunQuery`] with [`ValidateDaxSyntax`] to iteratively test and refine DAX expressions with immediate feedback on syntax and results.
 
 #### validate_query
 - Validates DAX query syntax without execution
@@ -97,9 +107,10 @@ dotnet run -- --port 56751 --max-rows 2000
 There are several ways to detect Power BI Desktop instances.
 The easiest is to open Tabular Editor and check the port in the connection string.
 
-![Tabular Editor](image.png)
+<img width="317" height="63" alt="Tabular Editor" src="https://github.com/user-attachments/assets/eca039c7-5ca4-4fc6-a957-7684a971a01e" />
+
    
-Simply add the port to your MCP server configuration in the next step (you can ignore the database ID, as this server connects to the default model).   
+Simply add the port (63717 in example above) to your MCP server configuration in the next step (you can ignore the database ID, as this server connects to the default model).   
 If you don't have Tabular Editor, you can use the included discovery tool to find the running instance and database.
 
    Open PowerShell, navigate to the release directory, and run:
@@ -146,7 +157,6 @@ If you don't have Tabular Editor, you can use the included discovery tool to fin
    ```
    Replace `path\\to\\release` with your actual release directory path and `YOUR_PBI_PORT` with the port number from PBI instance.
 
-5. **Restart your editor** to load the MCP server configuration.
 
 ### Setup from Source (For Development)
 
@@ -203,7 +213,6 @@ If you don't have Tabular Editor, you can use the included discovery tool to fin
    ```
    Replace `path\\to\\MCPBI` with your actual repository path.
 
-6. **Restart your editor** to load the MCP server.
 
 ### Configuration Notes
 - **Use either port or envFile**: You can specify the Power BI port directly in `args` or use `envFile` to load from `.env`.
