@@ -13,6 +13,7 @@ namespace pbi_local_mcp.Tests;
 /// Integration‑style smoke tests – their only job is to prove that the tools connect to *whatever* model the
 /// .env points to and that they do not throw. They make no assumptions about table or measure names.
 /// </summary>
+[Trait("Category", "Integration")]
 public class Tests
 {
     private static string? _connStr;
@@ -188,22 +189,10 @@ public class Tests
     /// <summary>
     /// Tests that the PreviewData tool functions without throwing exceptions
     /// </summary>
-    [Fact]
+    [Fact(Skip = "PreviewTableData was removed from ObjectRetrievalTools")]
     public async Task PreviewDataTool_DoesNotThrow()
     {
-        var args = _toolConfig["previewTableData"];
-        string tableName = args.GetProperty("tableName").GetString()!;
-        int topN = args.TryGetProperty("topN", out var n) ? n.GetInt32() : 10;
-        Console.WriteLine(
-            $"\n[PreviewDataTool_DoesNotThrow] Previewing {topN} rows from table: {tableName}");
-
-        var response = await _daxTools.PreviewTableData(tableName, topN); // Changed to instance call
-        LogToolResponse(response);
-
-        var result = ExtractDataFromResponse(response);
-        Assert.IsAssignableFrom<IEnumerable<Dictionary<string, object?>>>(result);
-        var rows = (IEnumerable<Dictionary<string, object?>>)result;
-        Console.WriteLine($"[PreviewDataTool_DoesNotThrow] Retrieved {rows.Count()} rows.");
+        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -381,6 +370,7 @@ public class Tests
 /// <summary>
 /// Comprehensive tests for the enhanced RunQuery method with DEFINE block support
 /// </summary>
+[Trait("Category", "Integration")]
 public class DaxToolsRunQueryTests
 {
     private static readonly Dictionary<string, JsonElement> _toolConfig;
@@ -483,7 +473,7 @@ public class DaxToolsRunQueryTests
             tabularConnection = new TabularConnection(powerBiConfig);
         }
 
-        _daxTools = new QueryExecutionTools(tabularConnection, logger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
+        _daxTools = new QueryExecutionTools(tabularConnection, logger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService(), TestConnectionHelper.CreateExportConfig());
 
         // Load tooltest.config.json
         string dir2 = AppContext.BaseDirectory;

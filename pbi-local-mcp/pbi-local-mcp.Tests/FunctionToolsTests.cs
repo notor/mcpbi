@@ -11,6 +11,7 @@ namespace pbi_local_mcp.Tests;
 /// Tests for the DAX function lookup tools (ListFunctions and GetFunctionDetails).
 /// These tests verify DMV query functionality for MDSCHEMA_FUNCTIONS.
 /// </summary>
+[Trait("Category", "Integration")]
 public class FunctionToolsTests
 {
     private static readonly ObjectRetrievalTools _daxTools;

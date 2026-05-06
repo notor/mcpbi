@@ -91,6 +91,16 @@ public class ServerConfigurator
                 var encryptionKey = Environment.GetEnvironmentVariable("PBI_ENCRYPTION_KEY");
                 return new DataObfuscationService(strategy, encryptionKey);
             })
+            .AddSingleton<ExportConfig>(_ =>
+            {
+                return new ExportConfig
+                {
+                    ExportDir = Environment.GetEnvironmentVariable("PBI_EXPORT_DIR"),
+                    MaxExportRows = int.TryParse(
+                        Environment.GetEnvironmentVariable("PBI_MAX_EXPORT_ROWS"),
+                        out var n) && n > 0 ? n : 100_000
+                };
+            })
             .AddSingleton<PowerBiResourceProvider>()
             .AddSingleton<QueryExecutionTools>()
             .AddSingleton<QueryAnalysisTools>()
@@ -298,12 +308,23 @@ public class ServerConfigurator
             name: "--encryption-key",
             description: "Encryption key for data obfuscation (required if obfuscation-strategy != none, minimum 16 characters)");
 
+        var exportDirOption = new Option<string?>(
+            name: "--export-dir",
+            description: "Directory where ExportQueryResults writes files. Required to enable the export tool.");
+
+        var maxExportRowsOption = new Option<int>(
+            name: "--max-export-rows",
+            description: "Maximum rows per export. Exceeding this fails the export without writing a file.",
+            getDefaultValue: () => 100_000);
+
         var rootCommand = new RootCommand("PowerBI Tabular MCP Server")
         {
             portOption,
             maxRowsOption,
             obfuscationStrategyOption,
-            encryptionKeyOption
+            encryptionKeyOption,
+            exportDirOption,
+            maxExportRowsOption
         };
 
         var parseResult = rootCommand.Parse(args);
@@ -311,6 +332,8 @@ public class ServerConfigurator
         var maxRowsValue = parseResult.GetValueForOption(maxRowsOption);
         var obfuscationStrategyValue = parseResult.GetValueForOption(obfuscationStrategyOption);
         var encryptionKeyValue = parseResult.GetValueForOption(encryptionKeyOption);
+        var exportDirValue = parseResult.GetValueForOption(exportDirOption);
+        var maxExportRowsValue = parseResult.GetValueForOption(maxExportRowsOption);
 
         if (!string.IsNullOrWhiteSpace(portValue))
         {
@@ -369,6 +392,36 @@ public class ServerConfigurator
                 _logger.LogInformation("Encryption key configured (length: {KeyLength} characters)", encryptionKeyValue.Length);
             }
         }
+
+        // Configure export directory (opt-in; if not set, ExportQueryResults returns a "not enabled" error)
+        if (!string.IsNullOrWhiteSpace(exportDirValue))
+        {
+            var canonicalExportDir = Path.GetFullPath(exportDirValue);
+
+            if (!Directory.Exists(canonicalExportDir))
+            {
+                Directory.CreateDirectory(canonicalExportDir);
+                _logger.LogInformation("Created export directory: {ExportDir}", canonicalExportDir);
+            }
+
+            // Verify the directory is writable with a temp-file probe
+            var probeFile = Path.Combine(canonicalExportDir, $".mcpbi-write-probe-{Guid.NewGuid():N}");
+            try
+            {
+                await File.WriteAllTextAsync(probeFile, "probe");
+                File.Delete(probeFile);
+            }
+            catch (Exception ex)
+            {
+                throw new ArgumentException($"Export directory '{canonicalExportDir}' is not writable: {ex.Message}", ex);
+            }
+
+            Environment.SetEnvironmentVariable("PBI_EXPORT_DIR", canonicalExportDir);
+            _logger.LogInformation("Export directory set to: {ExportDir}", canonicalExportDir);
+        }
+
+        // Always write max-export-rows so the DI registration can read it
+        Environment.SetEnvironmentVariable("PBI_MAX_EXPORT_ROWS", maxExportRowsValue.ToString());
     }
 
     /// <summary>

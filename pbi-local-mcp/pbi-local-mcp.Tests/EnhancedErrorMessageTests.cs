@@ -7,6 +7,7 @@ namespace pbi_local_mcp.Tests;
 /// <summary>
 /// Tests for enhanced error message generation.
 /// </summary>
+[Trait("Category", "Integration")]
 public class EnhancedErrorMessageTests
 {
     /// <summary>

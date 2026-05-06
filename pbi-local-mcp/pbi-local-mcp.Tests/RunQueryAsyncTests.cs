@@ -9,6 +9,7 @@ namespace pbi_local_mcp.Tests;
 /// <summary>
 /// Tests for RunQueryAsync functionality.
 /// </summary>
+[Trait("Category", "Integration")]
 public class RunQueryAsyncTests
 {
     private static QueryExecutionTools CreateTools()
@@ -96,7 +97,7 @@ public class RunQueryAsyncTests
         }
 
         var toolsLogger = NullLogger<QueryExecutionTools>.Instance;
-        return new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
+        return new QueryExecutionTools(connection, toolsLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService(), TestConnectionHelper.CreateExportConfig());
     }
 
     /// <summary>

@@ -33,6 +33,16 @@ public static class TestConnectionHelper
     }
 
     /// <summary>
+    /// Creates an ExportConfig for testing (export disabled by default).
+    /// </summary>
+    /// <param name="exportDir">Export directory path, or null to disable export.</param>
+    /// <param name="maxExportRows">Maximum export rows (default: 100,000).</param>
+    public static ExportConfig CreateExportConfig(string? exportDir = null, int maxExportRows = 100_000)
+    {
+        return new ExportConfig { ExportDir = exportDir, MaxExportRows = maxExportRows };
+    }
+
+    /// <summary>
     /// Creates a TabularConnection with auto-discovery if dbId is not provided.
     /// Reads from environment variables and .env file.
     /// </summary>

@@ -47,6 +47,31 @@ Automatic row limiting with comprehensive metadata:
 dotnet run -- --port 56751 --max-rows 2000
 ```
 
+### File Export (opt-in)
+Write DAX query results directly to disk, bypassing the LLM context window entirely. Useful for large datasets that exceed what can be passed through the MCP response.
+
+- **Disabled by default** — requires `--export-dir` at startup
+- Output formats: `jsonl` (default, type-safe, Python/pandas-friendly) or `csv`
+- Filenames are LLM-supplied (base name only); a `_YYYYMMDD_HHmmss` timestamp is appended automatically
+- Row limit enforced via `--max-export-rows` (default 100 000); export is refused rather than silently truncated
+- Obfuscation applied to exported files by default when an obfuscation strategy is configured
+
+```bash
+# Enable export to a specific directory, limit to 50 000 rows
+dotnet run -- --port 56751 --export-dir "C:\Users\you\exports" --max-export-rows 50000
+```
+
+Once enabled, call `export_query_results` from the LLM with a DAX query and a base filename:
+
+```
+export_query_results(
+  dax="EVALUATE SUMMARIZECOLUMNS(DimCustomer[CustomerKey], \"Sales\", [Total Sales])",
+  filename="customer_sales",
+  format="jsonl"
+)
+# Returns: { filePath, rowCount, columnCount, format, durationMs }
+```
+
 ## Tools
 
 #### list_objects
@@ -68,6 +93,12 @@ dotnet run -- --port 56751 --max-rows 2000
 #### run_query
 - Executes a custom DAX query against the model
 - Returns query results with metadata (total rows, truncated status)
+
+#### export_query_results
+- Executes a DAX query and writes results to a file (JSONL or CSV) on disk
+- Requires `--export-dir` to be set at server startup; returns an error otherwise
+- Returns a receipt: `{ filePath, rowCount, columnCount, format, durationMs }`
+- Obfuscation is applied by default when configured; pass `applyObfuscation: false` to skip
 ### 1. **Model Discovery**
 Use [`ListTables`], [`GetTableColumns`], and [`GetTableRelationships`] to quickly understand an unfamiliar model's structure without manually clicking through Power BI Desktop.
 
@@ -220,3 +251,19 @@ If you don't have Tabular Editor, you can use the included discovery tool to fin
 - **envFile**: The development setup uses `envFile` to automatically load `PBI_PORT` and `PBI_DB_ID` from `.env`
 - **alwaysAllow**: Lists all tools that can be used without requiring user approval for each invocation
 - **Working directory**: The `cwd` parameter sets the working directory where the `.env` file is located
+
+## Testing
+
+The test suite is split into two categories:
+
+**Unit tests** — no Power BI connection required. Run at any time:
+```sh
+dotnet test pbi-local-mcp.Tests --filter "Category!=Integration"
+```
+
+**Integration tests** — require Power BI Desktop to be open with a model loaded. These are tagged `[Trait("Category", "Integration")]` and will hang (not fail fast) if no PBI instance is reachable:
+```sh
+dotnet test pbi-local-mcp.Tests --filter "Category=Integration"
+```
+
+Running `dotnet test` with no filter will include integration tests and will hang if Power BI Desktop is not open.

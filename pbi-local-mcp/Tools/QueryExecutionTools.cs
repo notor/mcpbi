@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 
 using ModelContextProtocol.Server;
 
+using pbi_local_mcp.Configuration;
 using pbi_local_mcp.Core;
 
 namespace pbi_local_mcp;
@@ -22,6 +23,7 @@ public class QueryExecutionTools
     private readonly ILogger<QueryExecutionTools> _logger;
     private readonly TruncationService _truncationService;
     private readonly DataObfuscationService _obfuscationService;
+    private readonly ExportConfig _exportConfig;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -35,16 +37,19 @@ public class QueryExecutionTools
     /// <param name="logger">The logger service.</param>
     /// <param name="truncationService">The truncation service for row limiting.</param>
     /// <param name="obfuscationService">The obfuscation service for data masking.</param>
+    /// <param name="exportConfig">Export configuration (export directory and row limit).</param>
     public QueryExecutionTools(
         ITabularConnection tabularConnection,
         ILogger<QueryExecutionTools> logger,
         TruncationService truncationService,
-        DataObfuscationService obfuscationService)
+        DataObfuscationService obfuscationService,
+        ExportConfig exportConfig)
     {
         _tabularConnection = tabularConnection ?? throw new ArgumentNullException(nameof(tabularConnection));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _truncationService = truncationService ?? throw new ArgumentNullException(nameof(truncationService));
         _obfuscationService = obfuscationService ?? throw new ArgumentNullException(nameof(obfuscationService));
+        _exportConfig = exportConfig ?? throw new ArgumentNullException(nameof(exportConfig));
     }
 
     /// <summary>
@@ -64,161 +69,233 @@ public class QueryExecutionTools
 
         try
         {
-            // Validate connection before proceeding
             await _tabularConnection.ValidateConnectionAsync();
 
             _logger.LogDebug("Starting RunQuery execution for query: {Query}", originalDax?.Substring(0, Math.Min(100, originalDax?.Length ?? 0)));
 
             var startTime = DateTime.UtcNow;
 
-            // Input validation
-            if (string.IsNullOrWhiteSpace(dax))
+            var (resultList, columns) = await ExecuteDaxAndCollectAsync(dax, topN);
+
+            var executionTime = DateTime.UtcNow - startTime;
+            _logger.LogDebug("Query execution completed successfully in {ExecutionTime}ms", executionTime.TotalMilliseconds);
+
+            // Apply obfuscation if enabled
+            if (_obfuscationService.Strategy != ObfuscationStrategy.None && resultList.Count > 0)
             {
-                var error = "DAX query cannot be null or empty";
-                _logger.LogWarning(error);
-                throw new ArgumentException(error, nameof(dax));
+                var obfResult = _obfuscationService.ObfuscateData(resultList, columns);
+                resultList = obfResult.Rows;
+                _logger.LogDebug("Applied {Strategy} obfuscation to {FieldCount} fields",
+                    obfResult.Strategy, obfResult.ObfuscatedFields.Count);
             }
 
-            string query = dax.Trim();
+            // Apply truncation with metadata
+            var response = _truncationService.ApplyTruncationWithMetadata(
+                resultList,
+                columns,
+                topN,
+                executionTime.TotalMilliseconds);
 
-            // Pre-execution validation with detailed error reporting
-            var validationErrors = ValidateQuerySyntax(query);
-            if (validationErrors.Any())
+            // Add obfuscation metadata if applied
+            if (_obfuscationService.Strategy != ObfuscationStrategy.None)
             {
-                var validationError = $"Query validation failed: {string.Join("; ", validationErrors)}";
-                _logger.LogWarning("Query validation failed for query: {Query}. Errors: {Errors}",
-                    originalDax, string.Join("; ", validationErrors));
-                throw new ArgumentException(validationError, nameof(dax));
+                response["obfuscated"] = true;
+                response["obfuscationStrategy"] = _obfuscationService.Strategy.ToString();
             }
 
-            // Additional validation for complete DAX queries
-            if (query.Contains("DEFINE", StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    ValidateCompleteDAXQuery(query);
-                }
-                catch (ArgumentException validationEx)
-                {
-                    _logger.LogWarning("Complete DAX query validation failed: {Error}", validationEx.Message);
-                    throw new ArgumentException($"DAX query structure validation failed: {validationEx.Message}", nameof(dax), validationEx);
-                }
-            }
-
-            // Determine query type and construct final query
-            string finalQuery;
-            QueryType queryType;
-
-            if (query.StartsWith("DEFINE", StringComparison.OrdinalIgnoreCase))
-            {
-                finalQuery = query;
-                queryType = QueryType.DAX;
-                _logger.LogDebug("Executing DEFINE query as DAX");
-            }
-            else if (query.StartsWith("EVALUATE", StringComparison.OrdinalIgnoreCase))
-            {
-                finalQuery = query;
-                queryType = QueryType.DAX;
-                _logger.LogDebug("Executing EVALUATE query as DAX");
-            }
-            else
-            {
-                // Construct EVALUATE statement for simple expressions
-                try
-                {
-                    finalQuery = ConstructEvaluateStatement(query, topN);
-                    queryType = QueryType.DAX;
-                    _logger.LogDebug("Constructed EVALUATE statement for simple expression: {FinalQuery}",
-                        finalQuery.Substring(0, Math.Min(100, finalQuery.Length)));
-                }
-                catch (Exception constructEx)
-                {
-                    _logger.LogError(constructEx, "Failed to construct EVALUATE statement for query: {Query}", originalDax);
-                    throw new ArgumentException($"Failed to construct valid DAX query from expression: {constructEx.Message}", nameof(dax), constructEx);
-                }
-            }
-
-            // Execute the query with enhanced error handling
-            try
-            {
-                _logger.LogDebug("Executing query with QueryType: {QueryType}", queryType);
-                var result = await _tabularConnection.ExecAsync(finalQuery, queryType);
-                var executionTime = DateTime.UtcNow - startTime;
-                _logger.LogDebug("Query execution completed successfully in {ExecutionTime}ms", executionTime.TotalMilliseconds);
-
-                // Wrap result in expected format
-                var resultList = (result as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
-                var columns = resultList.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
-
-                // Apply obfuscation if enabled
-                if (_obfuscationService.Strategy != ObfuscationStrategy.None && resultList.Count > 0)
-                {
-                    var obfResult = _obfuscationService.ObfuscateData(resultList, columns);
-                    resultList = obfResult.Rows;
-                    _logger.LogDebug("Applied {Strategy} obfuscation to {FieldCount} fields",
-                        obfResult.Strategy, obfResult.ObfuscatedFields.Count);
-                }
-
-                // Apply truncation with metadata
-                var response = _truncationService.ApplyTruncationWithMetadata(
-                    resultList,
-                    columns,
-                    topN,
-                    executionTime.TotalMilliseconds);
-
-                // Add obfuscation metadata if applied
-                if (_obfuscationService.Strategy != ObfuscationStrategy.None)
-                {
-                    response["obfuscated"] = true;
-                    response["obfuscationStrategy"] = _obfuscationService.Strategy.ToString();
-                }
-
-                return response;
-            }
-            catch (Exception execEx)
-            {
-                // Log detailed execution error information
-                _logger.LogError(execEx, "Query execution failed. Original: {OriginalQuery}, Final: {FinalQuery}, QueryType: {QueryType}",
-                    originalDax, finalQuery, queryType);
-
-                // Return structured error information instead of throwing
-                return CreateStructuredErrorResponse(execEx,
-                    originalDax ?? string.Empty,
-                    finalQuery ?? string.Empty,
-                    queryType, "execution");
-            }
+            return response;
         }
         catch (PowerBiConnectionException connEx)
         {
-            // Re-throw connection exceptions so tests can catch them
             _logger.LogError(connEx, "Connection error in RunQuery");
             throw;
         }
         catch (ArgumentException validationEx)
         {
-            // Log validation errors
             _logger.LogWarning(validationEx, "Query validation failed for query: {Query}", originalDax);
-
-            // Return structured validation error information
             return CreateStructuredErrorResponse(validationEx, originalDax, originalDax, QueryType.DAX, "validation");
         }
         catch (DaxQueryExecutionException execEx)
         {
-            // Log execution errors and return structured error information
             _logger.LogError(execEx, "DAX execution error in RunQuery for query: {Query}", originalDax);
-
-            // Return structured execution error information
             return CreateStructuredErrorResponse(execEx, originalDax, originalDax, QueryType.DAX, "execution");
         }
         catch (Exception ex)
         {
-            // Log unexpected errors and return structured error information
             _logger.LogError(ex, "Unexpected error in RunQuery for query: {Query}", originalDax);
-
-            // Determine if this is likely an execution error based on exception type
             var errorCategory = IsLikelyExecutionError(ex) ? "execution" : "unexpected";
             return CreateStructuredErrorResponse(ex, originalDax, originalDax, QueryType.DAX, errorCategory);
         }
+    }
+
+    /// <summary>
+    /// Executes a DAX query and materializes all rows into memory. Used by both RunQuery and ExportQueryResults.
+    /// Throws ArgumentException on validation failure; re-throws execution exceptions for the caller to handle.
+    /// </summary>
+    /// <param name="dax">DAX query text.</param>
+    /// <param name="topN">TOPN limit applied when constructing a simple-expression EVALUATE wrapper. Pass int.MaxValue to fetch all rows.</param>
+    private async Task<(List<Dictionary<string, object?>> rows, List<string> columns)> ExecuteDaxAndCollectAsync(
+        string dax, int topN = int.MaxValue)
+    {
+        if (string.IsNullOrWhiteSpace(dax))
+            throw new ArgumentException("DAX query cannot be null or empty.", nameof(dax));
+
+        string query = dax.Trim();
+
+        var validationErrors = ValidateQuerySyntax(query);
+        if (validationErrors.Any())
+        {
+            var msg = $"Query validation failed: {string.Join("; ", validationErrors)}";
+            _logger.LogWarning("Query validation failed for query: {Query}. Errors: {Errors}", dax, msg);
+            throw new ArgumentException(msg, nameof(dax));
+        }
+
+        if (query.Contains("DEFINE", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                ValidateCompleteDAXQuery(query);
+            }
+            catch (ArgumentException validationEx)
+            {
+                _logger.LogWarning("Complete DAX query validation failed: {Error}", validationEx.Message);
+                throw new ArgumentException($"DAX query structure validation failed: {validationEx.Message}", nameof(dax), validationEx);
+            }
+        }
+
+        string finalQuery;
+        if (query.StartsWith("DEFINE", StringComparison.OrdinalIgnoreCase) ||
+            query.StartsWith("EVALUATE", StringComparison.OrdinalIgnoreCase))
+        {
+            finalQuery = query;
+            _logger.LogDebug("Executing DEFINE/EVALUATE query as DAX");
+        }
+        else
+        {
+            try
+            {
+                finalQuery = ConstructEvaluateStatement(query, topN);
+                _logger.LogDebug("Constructed EVALUATE statement: {FinalQuery}",
+                    finalQuery.Substring(0, Math.Min(100, finalQuery.Length)));
+            }
+            catch (Exception constructEx)
+            {
+                _logger.LogError(constructEx, "Failed to construct EVALUATE statement for query: {Query}", dax);
+                throw new ArgumentException($"Failed to construct valid DAX query from expression: {constructEx.Message}", nameof(dax), constructEx);
+            }
+        }
+
+        var result = await _tabularConnection.ExecAsync(finalQuery, QueryType.DAX);
+        var rows = (result as IEnumerable<Dictionary<string, object?>>)?.ToList() ?? new List<Dictionary<string, object?>>();
+        var columns = rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
+        return (rows, columns);
+    }
+
+    /// <summary>
+    /// Executes a DAX query and writes the results to a file in JSONL or CSV format.
+    /// Export must be enabled via --export-dir at server startup. Obfuscation defaults to on.
+    /// Returns a receipt (filePath, rowCount, columnCount, format, durationMs) on success.
+    /// </summary>
+    [McpServerTool, Description("Execute a DAX query and write results to a file (JSONL or CSV). Requires --export-dir to be set at server startup. Returns a receipt with file path and row count. Obfuscation applied by default.")]
+    public async Task<object> ExportQueryResults(
+        [Description("DAX query or expression to execute")] string dax,
+        [Description("Output filename (base name only, no path). A timestamp suffix and format extension are added automatically.")] string filename,
+        [Description("Output format: 'jsonl' (default, type-safe, Python-friendly) or 'csv' (Excel-friendly)")] string format = "jsonl",
+        [Description("Apply obfuscation to the exported file (default: true). Requires --obfuscation-strategy to be configured.")] bool applyObfuscation = true)
+    {
+        // Step 1: Is export enabled?
+        if (string.IsNullOrWhiteSpace(_exportConfig.ExportDir))
+        {
+            return new { success = false, error = "Export is not enabled. Start the server with --export-dir <path> to enable file export." };
+        }
+
+        // Cheap pre-validation: reject blank DAX before hitting the connection
+        if (string.IsNullOrWhiteSpace(dax))
+            return new { success = false, error = "DAX validation failed: DAX query cannot be null or empty." };
+
+        // Steps 2–4: Validate filename and build safe full path
+        string fullPath;
+        try
+        {
+            fullPath = ExportPathValidator.BuildSafePath(filename, format, _exportConfig.ExportDir);
+        }
+        catch (InvalidFilenameException ex)
+        {
+            return new { success = false, error = $"Invalid filename: {ex.Message}" };
+        }
+
+        // Step 5: Run the query
+        var startTime = DateTime.UtcNow;
+        List<Dictionary<string, object?>> rows;
+        List<string> columns;
+        try
+        {
+            await _tabularConnection.ValidateConnectionAsync();
+            (rows, columns) = await ExecuteDaxAndCollectAsync(dax, int.MaxValue);
+        }
+        catch (PowerBiConnectionException connEx)
+        {
+            _logger.LogError(connEx, "Connection error in ExportQueryResults");
+            throw;
+        }
+        catch (ArgumentException validationEx)
+        {
+            return new { success = false, error = $"DAX validation failed: {validationEx.Message}" };
+        }
+        catch (Exception execEx)
+        {
+            _logger.LogError(execEx, "DAX execution failed in ExportQueryResults");
+            return new { success = false, error = $"DAX execution failed: {execEx.Message}" };
+        }
+
+        // Step 6: Optionally apply obfuscation
+        bool didObfuscate = false;
+        if (applyObfuscation && _obfuscationService.Strategy != ObfuscationStrategy.None && rows.Count > 0)
+        {
+            var obfResult = _obfuscationService.ObfuscateData(rows, columns);
+            rows = obfResult.Rows;
+            didObfuscate = true;
+            _logger.LogDebug("Applied {Strategy} obfuscation before export", obfResult.Strategy);
+        }
+
+        // Step 7: Enforce row limit
+        if (rows.Count > _exportConfig.MaxExportRows)
+        {
+            return new
+            {
+                success = false,
+                error = $"Result has {rows.Count} rows which exceeds max-export-rows ({_exportConfig.MaxExportRows}). Refine the query or raise --max-export-rows."
+            };
+        }
+
+        // Step 8: Write the file
+        try
+        {
+            var writer = ExportWriter.For(format);
+            await writer.WriteAsync(fullPath, rows, columns);
+        }
+        catch (IOException ioEx)
+        {
+            _logger.LogError(ioEx, "Failed to write export file: {Path}", fullPath);
+            return new { success = false, error = $"Failed to write file: {ioEx.Message}" };
+        }
+
+        // Step 9: Return receipt
+        var durationMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
+        _logger.LogInformation("Exported {RowCount} rows to {Path} in {Format} format in {DurationMs}ms",
+            rows.Count, fullPath, format, durationMs);
+
+        return new
+        {
+            success = true,
+            filePath = fullPath,
+            rowCount = rows.Count,
+            columnCount = columns.Count,
+            format,
+            durationMs = (long)durationMs,
+            obfuscated = didObfuscate,
+            obfuscationStrategy = _obfuscationService.Strategy.ToString()
+        };
     }
 
     /// <summary>

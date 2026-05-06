@@ -10,6 +10,7 @@ namespace pbi_local_mcp.Tests;
 /// Comprehensive integration tests for all MCP tools.
 /// These tests validate connection requirements and ensure tools return complete payloads.
 /// </summary>
+[Trait("Category", "Integration")]
 public class McpToolsIntegrationTests : IDisposable
 {
     private readonly ITabularConnection _connection;
@@ -192,7 +193,7 @@ public class McpToolsIntegrationTests : IDisposable
     public async Task RunQuery_ShouldExecuteSimpleExpression()
     {
         // Arrange
-        var tools = new QueryExecutionTools(_connection, _queryLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
+        var tools = new QueryExecutionTools(_connection, _queryLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService(), TestConnectionHelper.CreateExportConfig());
 
         // Act
         var result = await tools.RunQuery("1+1");
@@ -213,7 +214,7 @@ public class McpToolsIntegrationTests : IDisposable
             "99999",
             "invalid"
         );
-        var tools = new QueryExecutionTools(badConnection, _queryLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
+        var tools = new QueryExecutionTools(badConnection, _queryLogger, TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService(), TestConnectionHelper.CreateExportConfig());
 
         // Act & Assert
         await Assert.ThrowsAsync<PowerBiConnectionException>(
@@ -233,7 +234,7 @@ public class McpToolsIntegrationTests : IDisposable
         var tools = new QueryAnalysisTools(_connection, _analysisLogger);
 
         // Act
-        var result = await tools.ValidateDaxSyntax("1+1");
+        var result = await tools.ValidateQuery("1+1");
 
         // Assert
         Assert.NotNull(result);
@@ -261,7 +262,7 @@ public class McpToolsIntegrationTests : IDisposable
 
         // Act & Assert
         await Assert.ThrowsAsync<PowerBiConnectionException>(
-            async () => await tools.ValidateDaxSyntax("1+1")
+            async () => await tools.ValidateQuery("1+1")
         );
     }
     /// <inheritdoc/>

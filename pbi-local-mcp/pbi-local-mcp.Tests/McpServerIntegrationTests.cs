@@ -10,6 +10,7 @@ namespace pbi_local_mcp.Tests;
 /// Comprehensive MCP Server Integration Tests
 /// Tests connection, tool discovery, and all tool functionality with fail-fast behavior
 /// </summary>
+[Trait("Category", "Integration")]
 public class McpServerIntegrationTests : IDisposable
 {
     private readonly ILogger<TabularConnection> _logger;
@@ -104,7 +105,7 @@ public class McpServerIntegrationTests : IDisposable
 
         // Verify tools can be instantiated
         var objectTools = new Tools.ObjectRetrievalTools(_connection, new TestLogger<Tools.ObjectRetrievalTools>(_output));
-        var queryTools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output), TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
+        var queryTools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output), TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService(), TestConnectionHelper.CreateExportConfig());
         var analysisTools = new QueryAnalysisTools(_connection, new TestLogger<QueryAnalysisTools>(_output));
 
         Assert.NotNull(objectTools);
@@ -258,12 +259,11 @@ public class McpServerIntegrationTests : IDisposable
     {
         _output.WriteLine($"\n=== TEST 5.1: PreviewTableData - {scenarioName} ===");
 
-        var tools = new Tools.ObjectRetrievalTools(_connection, new TestLogger<Tools.ObjectRetrievalTools>(_output));
+        var queryTools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output), TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService(), TestConnectionHelper.CreateExportConfig());
 
-        var result = await tools.PreviewTableData(
-            tableName: GetParam<string>(parameters, "tableName")!,
-            topN: GetParam<int>(parameters, "topN", 10)
-        );
+        var tableName = GetParam<string>(parameters, "tableName")!;
+        var topN = GetParam<int>(parameters, "topN", 10);
+        var result = await queryTools.RunQuery(tableName, topN);
 
         Assert.NotNull(result);
         _output.WriteLine($"✓ Tool executed successfully");
@@ -450,7 +450,7 @@ public class McpServerIntegrationTests : IDisposable
     {
         _output.WriteLine($"\n=== TEST 7.1: RunQuery - {scenarioName} ===");
 
-        var tools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output), TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService());
+        var tools = new QueryExecutionTools(_connection, new TestLogger<QueryExecutionTools>(_output), TestConnectionHelper.CreateTruncationService(), TestConnectionHelper.CreateObfuscationService(), TestConnectionHelper.CreateExportConfig());
 
         var result = await tools.RunQuery(
             dax: GetParam<string>(parameters, "dax")!,
@@ -495,7 +495,7 @@ public class McpServerIntegrationTests : IDisposable
 
         var tools = new QueryAnalysisTools(_connection, new TestLogger<QueryAnalysisTools>(_output));
 
-        var result = await tools.ValidateDaxSyntax(
+        var result = await tools.ValidateQuery(
             daxExpression: GetParam<string>(parameters, "daxExpression")!,
             includeRecommendations: GetParam<bool>(parameters, "includeRecommendations", true)
         );
